@@ -4,7 +4,6 @@ import numpy as np
 import requests
 import os
 import re
-import io
 import streamlit.components.v1 as components
 from weasyprint import HTML
 
@@ -15,8 +14,6 @@ if 'lat' not in st.session_state:
     st.session_state.lat = -16.3410
 if 'lon' not in st.session_state:
     st.session_state.lon = -71.5830
-if 'search_query' not in st.session_state:
-    st.session_state.search_query = ""
 
 # --- 2. FUNCIONES BASE ---
 def clean_city_name(filename):
@@ -77,32 +74,32 @@ def apply_u(v, vtype, is_ip):
     return v
 
 # --- 4. INTERFAZ PROFESIONAL (CONTROLES IZQUIERDA / MAPA DERECHA) ---
-st.markdown("<h2 style='text-align: center; color: #1f456e; font-family: Arial, sans-serif; font-weight: bold;'>NASA POWER | Data Access Viewer</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #1f456e; font-family: Arial, sans-serif; font-weight: bold;'>CONDICIONES CLIMÁTICAS DE DISEÑO</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
 col_params, col_map = st.columns([1, 2.5], gap="large")
 
 with col_params:
-    st.markdown("<h4 style='color: #333; font-family: Arial, sans-serif;'>Reports</h4>", unsafe_allow_html=True)
-    modo = st.radio("Source Method:", ["Satellite Coordinates (NASA)", "Local Station (EPW Data)"], label_visibility="visible")
+    st.markdown("<h4 style='color: #333; font-family: Arial, sans-serif;'>Configuración del Reporte</h4>", unsafe_allow_html=True)
+    modo = st.radio("Fuente de Datos:", ["Coordenadas Satelitales (NASA)", "Estación Local (Datos EPW)"], label_visibility="collapsed")
     
-    st.markdown("<h4 style='color: #333; font-family: Arial, sans-serif; margin-top: 15px;'>Units</h4>", unsafe_allow_html=True)
-    unit_sys = st.radio("Format:", ["SI (Métrico)", "IP (Imperial)"], horizontal=True, label_visibility="collapsed")
+    st.markdown("<h4 style='color: #333; font-family: Arial, sans-serif; margin-top: 15px;'>Sistema de Unidades</h4>", unsafe_allow_html=True)
+    unit_sys = st.radio("Formato:", ["SI (Métrico)", "IP (Imperial)"], horizontal=True, label_visibility="collapsed")
     is_ip = unit_sys == "IP (Imperial)"
 
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     file_map = get_epw_mapping()
 
-    if "Satellite" in modo:
+    if "Satelitales" in modo:
         usar_local = False
-        st.selectbox("Report Name *", ["Climate Design Conditions"], disabled=True)
-        lat = st.number_input("Latitude *", format="%.4f", key="lat")
-        lon = st.number_input("Longitude *", format="%.4f", key="lon")
-        start_y = st.selectbox("Start Date *", list(range(2001, 2020)), index=0)
-        end_y = st.selectbox("End Date *", list(range(2006, 2025)), index=18)
+        st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
+        lat = st.number_input("Latitud", format="%.4f", key="lat")
+        lon = st.number_input("Longitud", format="%.4f", key="lon")
+        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=0)
+        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)
     else:
         usar_local = True
-        selected_city = st.selectbox("Report Name (Local EPW) *", list(file_map.keys()))
+        selected_city = st.selectbox("Seleccionar Estación (Local EPW)", list(file_map.keys()))
         filename = file_map[selected_city]
         try:
             with open(f"data/{filename}", 'r', encoding='utf-8') as f:
@@ -110,45 +107,44 @@ with col_params:
                 st.session_state.lat = float(h_data[6])
                 st.session_state.lon = float(h_data[7])
         except: pass
-        lat = st.number_input("Latitude *", format="%.4f", key="lat", disabled=True)
-        lon = st.number_input("Longitude *", format="%.4f", key="lon", disabled=True)
+        lat = st.number_input("Latitud", format="%.4f", key="lat", disabled=True)
+        lon = st.number_input("Longitud", format="%.4f", key="lon", disabled=True)
         start_y, end_y = 2001, 2024
 
     st.markdown("<br>", unsafe_allow_html=True) 
-    btn_generar = st.button("Submit / Generar Reporte", type="primary", use_container_width=True)
+    btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
     # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        search_text = col_search.text_input("Location Search:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed")
-        if col_btn.button("Search Location", use_container_width=True):
+        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed")
+        if col_btn.button("Buscar y Ubicar", use_container_width=True):
             if search_text:
                 try:
                     res = requests.get(f"https://nominatim.openstreetmap.org/search?q={search_text}&format=json&limit=1", headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=5).json()
                     if res:
                         st.session_state.lat = float(res[0]['lat'])
                         st.session_state.lon = float(res[0]['lon'])
-                        st.success(f"Ubicación actualizada: {res[0]['display_name']}")
+                        st.success(f"Ubicación confirmada: {res[0]['display_name']}")
                     else: st.error("No se encontró la ubicación.")
                 except: st.error("Error al conectar con el servidor de mapas.")
     
-    # MAPA SATELITAL LEAFLET DE ALTA RESOLUCIÓN (Esri World Imagery)
+    # MAPA SATELITAL LEAFLET DE ALTA RESOLUCIÓN (Esri World Street Map - Estilo Google Maps / NASA)
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <div style="text-align:right; font-size:12px; color:#555; font-family:Arial; margin-bottom:5px;">Latitude: {st.session_state.lat:.4f} | Longitude: {st.session_state.lon:.4f}</div>
-    <div id="map" style="height: 450px; width: 100%; border-radius: 6px; border: 1px solid #ccc;"></div>
+    <div style="text-align:right; font-size:12px; color:#555; font-family:Arial; margin-bottom:5px;">Latitud: {st.session_state.lat:.4f} | Longitud: {st.session_state.lon:.4f}</div>
+    <div id="map" style="height: 480px; width: 100%; border-radius: 6px; border: 1px solid #ccc;"></div>
     <script>
-        var map = L.map('map').setView([{st.session_state.lat}, {st.session_state.lon}], 11);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EAS, and the GIS User Community'
+        var map = L.map('map').setView([{st.session_state.lat}, {st.session_state.lon}], 10);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+            attribution: 'Tiles &copy; Esri'
         }}).addTo(map);
         var marker = L.marker([{st.session_state.lat}, {st.session_state.lon}]).addTo(map);
-        marker.bindPopup("<b style='font-family:Arial;'>Estación de Análisis</b><br>Lat: {st.session_state.lat}<br>Lon: {st.session_state.lon}").openPopup();
     </script>
     """
-    components.html(map_html, height=500)
+    components.html(map_html, height=520)
 
 st.markdown("---")
 
@@ -184,49 +180,82 @@ if btn_generar:
 
     if not usar_local:
         # =========================================================
-        # MODO COORDENADAS: EXTRACCIÓN HTML SATELITAL
+        # MODO COORDENADAS: EXTRACCIÓN Y CONVERSIÓN NASA NATIVA
         # =========================================================
-        with st.spinner("Procesando matriz de datos y consolidando servidor..."):
+        with st.spinner("Procesando matriz de datos satelitales y aplicando conversiones termodinámicas..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=45)
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
-                    # Conversor IP Matemático usando Pandas para NASA (Si aplica)
+                    # Filtro de Privacidad
+                    html_crudo = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
+                    html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
+                    html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
+                    
+                    # Conversor IP Matemático Interceptando el HTML de NASA
                     if is_ip:
-                        try:
-                            dfs = pd.read_html(io.StringIO(html_crudo))
-                            for df in dfs[1:]: # Ignorar metadata
-                                for i in range(len(df)):
-                                    for j in range(len(df.columns)):
-                                        val = str(df.iloc[i, j])
-                                        if val.replace('.','',1).isdigit() or (val.startswith('-') and val[1:].replace('.','',1).isdigit()):
-                                            # Aproximación heurística rápida de columnas por posición general
-                                            # Convertirá T, TR, WS y P. (Evitamos corromper meses).
-                                            v_num = float(val)
-                                            if j > 0 and (v_num > -100 and v_num < 100): 
-                                                df.iloc[i, j] = f"{apply_u(v_num, 'T', True):.1f}"
-                                            elif v_num >= 100: # Precipitacion o Grados Dia
-                                                df.iloc[i, j] = f"{apply_u(v_num, 'TR', True):.1f}"
-                            
-                            # Actualizamos headers en el HTML
-                            html_crudo = html_crudo.replace('(°C)', '(°F)').replace('(m/s)', '(mph)').replace('(mm)', '(in)').replace('(W m-2)', '(Btu/(h·ft²))')
-                        except: pass
+                        html_crudo = html_crudo.replace('(°C)', '(°F)').replace('(m/s)', '(mph)').replace('(mm)', '(in)').replace('W m-2', 'Btu/(h·ft²)').replace('J/kg', 'Btu/lb').replace('g/kg', 'grains/lb')
+                        html_crudo = html_crudo.replace('HDD10.0', 'HDD50.0').replace('HDD18.3', 'HDD65.0')
+                        html_crudo = html_crudo.replace('CDD10.0', 'CDD50.0').replace('CDD18.3', 'CDD65.0')
+                        html_crudo = html_crudo.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
+                        
+                        tablas = html_crudo.split('<table')
+                        for i in range(1, len(tablas)):
+                            filas = tablas[i].split('<tr')
+                            for j in range(1, len(filas)):
+                                if '<th' not in filas[j]:
+                                    celdas = filas[j].split('<td')
+                                    row_text = filas[j]
+                                    for k in range(1, len(celdas)):
+                                        m = re.search(r'^([^>]*>)(.*?)(</td>.*)', celdas[k], re.DOTALL)
+                                        if m:
+                                            prefix, val_str, suffix = m.groups()
+                                            val_str_clean = val_str.strip()
+                                            try:
+                                                val = float(val_str_clean)
+                                                new_val = val
+                                                # Heurística de conversión basada en NASA Table Structure
+                                                if 'Heating DB' in tablas[i]:
+                                                    if k in [2,3,4,6,7,9,11,13]: new_val = apply_u(val, 'T', True)
+                                                    elif k in [5,8]: new_val = apply_u(val, 'HR', True)
+                                                    elif k in [10,12,14]: new_val = apply_u(val, 'WS', True)
+                                                elif 'Cooling DB' in tablas[i]:
+                                                    if k == 2: new_val = apply_u(val, 'TR', True)
+                                                    elif k in [3,4,5,6,7,8,9,10,11,13,16,17]: new_val = apply_u(val, 'T', True)
+                                                    elif k == 12: new_val = apply_u(val, 'HR', True)
+                                                    elif k in [14,15]: new_val = apply_u(val, 'E', True)
+                                                elif 'Extreme Annual' in tablas[i]:
+                                                    if k in [1,2,3]: new_val = apply_u(val, 'WS', True)
+                                                    elif k in [5,6,9,10,11,12,13,14,15,16]: new_val = apply_u(val, 'T', True)
+                                                    elif k in [7,11]: new_val = apply_u(val, 'TR', True)
+                                                elif 'Monthly Climatic' in tablas[i]:
+                                                    if any(x in row_text for x in ['DBAvg','DB/MCWB','WB/MCDB','0.4%','2%','5%','10%','Max WB']):
+                                                        new_val = apply_u(val, 'T', True)
+                                                    elif any(x in row_text for x in ['DBStd','MDBR','MCDBR','MCWBR','HDD','CDD','CDH']):
+                                                        new_val = apply_u(val, 'TR', True)
+                                                    elif 'WSAvg' in row_text:
+                                                        new_val = apply_u(val, 'WS', True)
+                                                    elif 'Prec' in row_text:
+                                                        new_val = apply_u(val, 'P', True)
+                                                    elif any(x in row_text for x in ['Solar','Rad','Ebn','Edn']):
+                                                        new_val = apply_u(val, 'R', True)
+                                                celdas[k] = f"{prefix}{new_val:.1f}{suffix}"
+                                            except ValueError: pass
+                                    filas[j] = '<td'.join(celdas)
+                            tablas[i] = '<tr'.join(filas)
+                        html_crudo = '<table'.join(tablas)
 
-                    html_limpio = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
-                    html_limpio = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_limpio)
-                    html_limpio = html_limpio.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
-                    
                     loc_name = get_location_name(lat, lon)
-                    pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
-                    html_limpio = html_limpio.replace("<table", f"{pin_html}\n<table", 1)
+                    pin_html = f"<div class='location-pin'>📍 {loc_name} (WMO: SATELITAL)</div>"
+                    html_crudo = html_crudo.replace("<table", f"{pin_html}\n<table", 1)
                     
-                    html_preview_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_preview))
-                    html_pdf_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_pdf))
+                    html_preview_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_preview))
+                    html_pdf_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
                     st.success("Reporte procesado exitosamente.")
-                    with st.expander("Request Results", expanded=True):
+                    with st.expander("Vista Previa del Documento", expanded=True):
                         components.html(html_preview_final, height=700, scrolling=True)
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
@@ -242,7 +271,7 @@ if btn_generar:
 
     else:
         # =========================================================
-        # MODO EPW LOCAL: CONVERSIÓN Y RENDERIZADO
+        # MODO EPW LOCAL: CONVERSIÓN IP NATIVA Y RENDERIZADO
         # =========================================================
         with st.spinner("Estructurando matriz de datos y procesando diseño..."):
             filename = file_map[selected_city]
@@ -346,7 +375,7 @@ if btn_generar:
             m_rows += build_row([("RadStd", 1, 2, False)], lambda x: apply_u(x['GloHorz'].std() * 24 / 1000 if not x.empty else 0, 'R', is_ip))
 
             city_only = selected_city.split('-')[-1].strip().upper()
-            pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
+            pin_html = f"<div class='location-pin'>📍 {city_only}, PERÚ (WMO: {wmo_display})</div>"
 
             html_base = f"""
             <html><head></head>
@@ -458,7 +487,7 @@ if btn_generar:
             
             st.success("Reporte generado y estructurado exitosamente.")
             
-            with st.expander("Request Results", expanded=True):
+            with st.expander("Vista Previa del Documento", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
             
             pdf_file = HTML(string=html_pdf_final).write_pdf()
