@@ -79,4 +79,23 @@ if st.button("Generar Reporte Profesional"):
             th, td {{ border: 1px solid #777; padding: 3px; text-align: center; }}
             .h_azul {{ background-color: #2e75b6; color: white; }}
             .h_naranja {{ background-color: #c65911; color: white; }}
-            .h_verde {{ background-color: #548235; color:
+            .h_verde {{ background-color: #548235; color: white; }}
+        </style></head>
+        <body>
+            <h2 style="color: #2e75b6; border-bottom: 3px solid #2e75b6; margin: 2px 0;">CONDICIONES CLIMÁTICAS MENSUALES DE DISEÑO</h2>
+            <p style="margin: 2px 0;"><strong>Ubicación:</strong> {city_name}, Perú | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon} | <strong>Elevación:</strong> {alt} m</p>
+            <table>
+                <tr><th rowspan="2" class="h_azul">Mes</th><th colspan="8" class="h_azul">Refrigeración (Cooling)</th><th colspan="4" class="h_naranja">Calefacción (Heating)</th><th colspan="2" class="h_verde">MCDBR</th></tr>
+                <tr>
+                    <th colspan="2" class="h_azul">DB 0.4%</th><th colspan="2" class="h_azul">MCWB 0.4%</th><th colspan="2" class="h_azul">DB 2.0%</th><th colspan="2" class="h_azul">MCWB 2.0%</th>
+                    <th colspan="2" class="h_naranja">DB 99.6%</th><th colspan="2" class="h_naranja">DB 99.0%</th><th colspan="2" class="h_verde">Δ°C | Δ°F</th>
+                </tr>
+                <tr><td class="h_azul"></td><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th></tr>
+                {filas}
+            </table>
+            <p style="font-size: 7px; color: #444; margin-top: 5px;">Generado mediante reanálisis de datos NASA POWER (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa de la NASA.</p>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte generado con formato oficial!")
+        st.download_button("📥 Descargar PDF Formato Oficial", data=pdf_file, file_name=f"Reporte_Clima_{city_name}.pdf", mime="application/pdf")
