@@ -7,7 +7,7 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
 st.title("🌍 Generador de Reportes Climáticos ASHRAE")
 
-# 1. Función para decodificar archivos locales: PAÍS - DEPARTAMENTO - CIUDAD (Sin estación)
+# 1. Función para decodificar archivos locales: PAÍS - DEPARTAMENTO - CIUDAD
 def clean_city_name(filename):
     dept_map = {
         "AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa",
@@ -26,20 +26,19 @@ def clean_city_name(filename):
             subparts = parts[2].split('.')
             city_words = []
             for p in subparts:
-                # Filtrar códigos técnicos o extensiones comunes en TMYx
                 if p in ['AP', 'Intl', 'TMYx'] or p.isdigit() or ('-' in p and p.split('-')[0].isdigit()):
                     break
                 city_words.append(p)
             
             base_name = " ".join(city_words)
-            ciudad = base_name.split('-')[0].strip() # Ocultar nombre del aeropuerto/estación
+            ciudad = base_name.split('-')[0].strip() 
             return f"{pais} - {departamento} - {ciudad}"
             
         return filename.replace(".epw", "")
     except:
         return filename
 
-# 2. Función para obtener ubicación real por coordenadas (Geocodificación)
+# 2. Función para obtener ubicación real por coordenadas
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
@@ -57,7 +56,7 @@ def get_location_name(lat, lon):
     except:
         return f"Coordenadas [Lat: {lat}, Lon: {lon}]"
 
-# 3. Función para calcular Presión Atmosférica Estándar (kPa) según elevación
+# 3. Función para calcular Presión Atmosférica Estándar (kPa)
 def calc_stdp(elev_m):
     try:
         z = float(elev_m)
@@ -66,7 +65,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas al estilo ASHRAE (N/S, E/W)
+# 4. Función para formatear coordenadas (N/S, E/W)
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -77,7 +76,7 @@ def format_coord(val, is_lat):
     except:
         return str(val)
 
-# 5. Función para mapear archivos de la carpeta data
+# 5. Función para mapear archivos locales
 def get_epw_mapping():
     if not os.path.exists("data"): return {}
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
@@ -94,23 +93,30 @@ usar_local = selected_city != OPCION_MANUAL
 
 lat = col2.number_input("Latitud", value=-12.022, format="%.4f", disabled=usar_local)
 lon = col3.number_input("Longitud", value=-77.114, format="%.4f", disabled=usar_local)
-year = col3.selectbox("Año de análisis (Satelital):", list(range(2024, 2014, -1)), disabled=usar_local)
+
+periodo_opciones = [
+    "2023 (1 Año de prueba)", 
+    "2019-2023 (5 Años)", 
+    "2014-2023 (10 Años)", 
+    "2009-2023 (15 Años - Estándar ASHRAE)"
+]
+periodo_str = col3.selectbox("Periodo Satelital NASA:", periodo_opciones, disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
-    with st.spinner("Procesando matriz meteorológica y diseñando PDF..."):
+    with st.spinner("Procesando matriz meteorológica. (Aviso: un periodo de 15 años puede tardar ~25 segundos en descargar)..."):
         fuente = ""
         df = None
         city_display = "Ubicación"
         alt_display = "0"
         period_display = "N/A"
         wmo_display = "N/A"
+        start_date_for_range = "2024"
 
         # A) LÓGICA LOCAL (EPW PRE-CARGADO)
         if usar_local:
             filename = file_map[selected_city]
             city_display = selected_city.upper()
             
-            # Extracción del Periodo analizando las partes del archivo
             period_display = "TMYx (Año Típico)"
             try:
                 partes_punto = filename.replace(".epw", "").split('.')
@@ -121,7 +127,6 @@ if st.button("Generar Reporte Profesional"):
             except:
                 pass
 
-            # Extraer WMO, Lat, Lon, Alt de la cabecera nativa del EPW
             try:
                 with open(f"data/{filename}", 'r', encoding='utf-8') as f:
                     first_line = f.readline()
@@ -135,23 +140,42 @@ if st.button("Generar Reporte Profesional"):
 
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,6,8], names=['Month', 'Day', 'DB', 'WB'])
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
+            start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL)
+        # B) LÓGICA MANUAL (SATELITAL NASA - MULTIAÑO)
         else:
             city_display = get_location_name(lat, lon).upper()
-            period_display = f"{year} (Año Real)"
             wmo_display = "SATELITAL"
             
-            url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={year}0101&end={year}1231&format=JSON"
-            res = requests.get(url).json()
-            alt_display = str(round(res['geometry']['coordinates'][2], 1))
-            df = pd.DataFrame({'DB': list(res['properties']['parameter']['T2M'].values()), 
-                               'WB': list(res['properties']['parameter']['T2MWET'].values())})
-            df['Month'] = pd.date_range(start=f"{year}-01-01", periods=len(df), freq='h').month
-            fuente = f"Generado mediante reanálisis de datos satelitales NASA (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa satelital."
+            if "15 Años" in periodo_str: start_year, end_year = 2009, 2023
+            elif "10 Años" in periodo_str: start_year, end_year = 2014, 2023
+            elif "5 Años" in periodo_str: start_year, end_year = 2019, 2023
+            else: start_year, end_year = 2023, 2023
+                
+            period_display = f"{start_year}-{end_year}"
+            start_date_for_range = f"{start_year}-01-01"
+            
+            dfs = []
+            for y in range(start_year, end_year + 1):
+                url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={y}0101&end={y}1231&format=JSON"
+                res = requests.get(url).json()
+                
+                if y == start_year:
+                    alt_display = str(round(res['geometry']['coordinates'][2], 1))
+                
+                db_vals = list(res['properties']['parameter']['T2M'].values())
+                wb_vals = list(res['properties']['parameter']['T2MWET'].values())
+                
+                temp_df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
+                temp_df['Month'] = pd.date_range(start=f"{y}-01-01", periods=len(temp_df), freq='h').month
+                dfs.append(temp_df)
+                
+            df = pd.concat(dfs, ignore_index=True)
+            horas_totales = (end_year - start_year + 1) * 8760
+            fuente = f"Generado mediante reanálisis de datos satelitales NASA ({start_year}-{end_year}). Extracción percentilar matemática derivada de {horas_totales} horas de data continua."
 
-        # Procesamiento matemático de percentiles ASHRAE (8760 horas por año)
-        df['Day'] = pd.date_range(start=f"2024-01-01", periods=len(df), freq='h').date
+        # Cálculos de Ingeniería ASHRAE
+        df['Day'] = pd.date_range(start=start_date_for_range, periods=len(df), freq='h').date
         
         def calc_mcwb(sub, t):
             h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
@@ -180,6 +204,13 @@ if st.button("Generar Reporte Profesional"):
         lat_str = format_coord(lat, True)
         lon_str = format_coord(lon, False)
         stdp_display = calc_stdp(alt_display)
+        
+        # Calcular altitud en pies
+        try:
+            alt_ft = float(alt_display) * 3.28084
+            alt_ft_str = f"{alt_ft:.1f}"
+        except:
+            alt_ft_str = "0.0"
 
         # --- CONSTRUCCIÓN DE HTML PREMIUM ---
         filas = "".join([f"""
@@ -196,8 +227,7 @@ if st.button("Generar Reporte Profesional"):
             @page {{ size: A4 landscape; margin: 1cm; }}
             body {{ font-family: 'Times New Roman', serif; font-size: 11px; color: #000; }}
             
-            .report-title {{ font-size: 13px; margin-bottom: 20px; color: #444; }}
-            .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 15px; }}
+            .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-top: 15px; margin-bottom: 15px; }}
             
             table {{ width: 100%; border-collapse: collapse; }}
             .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
@@ -214,15 +244,13 @@ if st.button("Generar Reporte Profesional"):
             .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
         </style></head>
         <body>
-            <div class="report-title">2025 ASHRAE Handbook - Fundamentals (SI Approximation)</div>
-            
-            <div class="location-header">📍 {city_display} (WMO: {wmo_display})</div>
+            <div class="location-header">{city_display} (WMO: {wmo_display})</div>
             
             <table class="meta-table">
                 <tr>
                     <td>Lat: <strong>{lat_str}</strong></td>
                     <td>Lon: <strong>{lon_str}</strong></td>
-                    <td>Elev: <strong>{alt_display}</strong></td>
+                    <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
                     <td>StdP: <strong>{stdp_display}</strong></td>
                     <td>Time zone: <strong>-5.00 (W05)</strong></td>
                     <td>Period: <strong>{period_display}</strong></td>
