@@ -81,4 +81,12 @@ if st.button("Generar Reporte Profesional"):
             <p style="font-size: 11px; margin-top: 0;"><strong>Ubicación:</strong> {loc_name} | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon} | <strong>Elevación:</strong> {alt} m</p>
             <table>
                 <tr><th rowspan="2" class="c1">Mes</th><th colspan="8" class="c1">Refrigeración (Cooling)</th><th colspan="4" class="c2">Calefacción (Heating)</th><th colspan="2" class="c3">MCDBR</th></tr>
-                <tr><th colspan="2" class="c1">DB 0.4%</th>
+                <tr><th colspan="2" class="c1">DB 0.4%</th><th colspan="2" class="c1">MCWB 0.4%</th><th colspan="2" class="c1">DB 2.0%</th><th colspan="2" class="c1">MCWB 2.0%</th><th colspan="2" class="c2">DB 99.6%</th><th colspan="2" class="c2">DB 99.0%</th><th colspan="2" class="c3">Δ°C | Δ°F</th></tr>
+                {filas}
+            </table>
+            <div class="footer">Generado mediante reanálisis de datos NASA POWER (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa de la NASA.</div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte Profesional Generado!")
+        st.download_button("📥 Descargar PDF Final", data=pdf_file, file_name=f"Reporte_ASHRAE_{loc_name}.pdf", mime="application/pdf")
