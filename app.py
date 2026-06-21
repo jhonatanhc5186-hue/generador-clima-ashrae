@@ -73,7 +73,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas al estilo normativo estándar (N/S, E/W)
+# 4. Función para formatear coordenadas (N/S, E/W)
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -103,6 +103,8 @@ st.markdown("---")
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
+tipo_reporte_satelital = "Condiciones de Diseño (Percentiles)"
+
 if modo == "🏢 Búsqueda por Estación de Ciudad":
     usar_local = True
     selected_city = col1.selectbox("Seleccionar ciudad de la base de datos:", list(file_map.keys()))
@@ -111,30 +113,32 @@ if modo == "🏢 Búsqueda por Estación de Ciudad":
 else:
     usar_local = False
     selected_city = None
-    col1.info("📅 Periodo de análisis fijado: Año 2024")
-    lat = col2.number_input("Latitud", value=-14.0837, format="%.4f")
-    lon = col3.number_input("Longitud", value=-77.7460, format="%.4f")
+    tipo_reporte_satelital = col1.selectbox(
+        "Tipo de Reporte Satelital:", 
+        ["Condiciones de Diseño (Percentiles)", "Indicadores Climáticos Oficiales (NASA POWER)"]
+    )
+    lat = col2.number_input("Latitud", value=-9.5653, format="%.4f")
+    lon = col3.number_input("Longitud", value=-77.0364, format="%.4f")
 
 st.markdown("<br>", unsafe_allow_html=True) 
 
 if st.button("Generar Reporte Profesional"):
-    msg_spinner = "Leyendo archivo EPW local..." if usar_local else "Procesando datos satelitales NASA (Año 2024)..."
-    
-    with st.spinner(msg_spinner):
+    with st.spinner("Procesando datos meteorológicos solicitados..."):
         fuente = ""
-        df = None
+        html_content = ""
         city_display = "Ubicación"
         alt_display = "0"
-        period_display = "N/A"
+        period_display = "2001-2024" if not usar_local else "N/A"
         wmo_display = "N/A"
-        start_date_for_range = "2024-01-01"
 
-        # A) LÓGICA LOCAL (EPW PRE-CARGADO)
+        # ==========================================
+        # MODO A: ESTACIÓN LOCAL (EPW)
+        # ==========================================
         if usar_local:
             filename = file_map[selected_city]
             city_display = selected_city.upper()
-            
             period_display = "TMYx (Año Típico)"
+            
             try:
                 partes_punto = filename.replace(".epw", "").split('.')
                 for p in partes_punto:
@@ -156,126 +160,41 @@ if st.button("Generar Reporte Profesional"):
                 pass 
 
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,6,8], names=['Month', 'Day', 'DB', 'WB'])
+            df['Day'] = pd.date_range(start="2024-01-01", periods=len(df), freq='h').date
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
-            start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL NASA) - FIJADA A 2024
-        else:
-            city_display = get_location_name(lat, lon).upper()
-            wmo_display = "SATELITAL"
-            
-            start_year, end_year = 2024, 2024
-            url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={start_year}0101&end={end_year}1231&format=JSON"
-            
-            try:
-                res = requests.get(url, timeout=20).json()
-                if 'properties' not in res or 'parameter' not in res['properties']:
-                    st.error(f"❌ ERROR: La NASA no devolvió datos válidos para el año {start_year} en esas coordenadas.")
-                    st.stop()
+            # Cálculos de Percentiles
+            def calc_mcwb(sub, t):
+                h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
+                return h['WB'].mean() if not h.empty else sub['WB'].max()
+
+            data_rows = []
+            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            for m in range(1, 13):
+                df_m = df[df['Month'] == m]
+                if df_m.empty: continue
+                db04 = df_m['DB'].quantile(0.996)
+                db20 = df_m['DB'].quantile(0.980)
+                db996 = df_m['DB'].quantile(0.004)
+                db990 = df_m['DB'].quantile(0.010)
+                range_c = (df_m.groupby('Day')['DB'].max() - df_m.groupby('Day')['DB'].min()).mean()
                 
-                if 'geometry' in res:
-                    alt_display = str(round(res['geometry']['coordinates'][2], 1))
-                
-                db_vals = list(res['properties']['parameter']['T2M'].values())
-                wb_vals = list(res['properties']['parameter']['T2MWET'].values())
-                
-                df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
-                df['Month'] = pd.date_range(start=f"{start_year}-01-01", periods=len(df), freq='h').month
-                
-            except Exception as e:
-                st.error(f"❌ ERROR: Fallo de conexión con la NASA al intentar descargar el año {start_year}.")
-                st.stop()
-            
-            period_display = "2024"
-            start_date_for_range = "2024-01-01"
-            
-            horas_totales = len(df)
-            fuente = f"Generado mediante reanálisis de datos satelitales NASA (Año 2024). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
+                data_rows.append({
+                    'Mes': meses[m-1], 'DB04': db04, 'DB04F': (db04*9/5)+32, 'MCWB04': calc_mcwb(df_m, db04), 'MCWB04F': (calc_mcwb(df_m, db04)*9/5)+32,
+                    'DB20': db20, 'DB20F': (db20*9/5)+32, 'MCWB20': calc_mcwb(df_m, db20), 'MCWB20F': (calc_mcwb(df_m, db20)*9/5)+32,
+                    'DB996': db996, 'DB996F': (db996*9/5)+32, 'DB990': db990, 'DB990F': (db990*9/5)+32, 'RangeC': range_c, 'RangeF': range_c*9/5
+                })
 
-        # Cálculos Estadísticos Avanzados de Ingeniería Climática
-        df['Day'] = pd.date_range(start=start_date_for_range, periods=len(df), freq='h').date
-        
-        def calc_mcwb(sub, t):
-            h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
-            return h['WB'].mean() if not h.empty else sub['WB'].max()
+            filas = "".join([f"""
+            <tr>
+                <td style="text-align:left; font-weight:bold; background-color:#f8f9fa;">{r['Mes']}</td>
+                <td>{r['DB04']:.1f}</td><td>{r['DB04F']:.1f}</td><td>{r['MCWB04']:.1f}</td><td>{r['MCWB04F']:.1f}</td>
+                <td>{r['DB20']:.1f}</td><td>{r['DB20F']:.1f}</td><td>{r['MCWB20']:.1f}</td><td>{r['MCWB20F']:.1f}</td>
+                <td>{r['DB996']:.1f}</td><td>{r['DB996F']:.1f}</td><td>{r['DB990']:.1f}</td><td>{r['DB990F']:.1f}</td>
+                <td>{r['RangeC']:.1f}</td><td>{r['RangeF']:.1f}</td>
+            </tr>""" for r in data_rows])
 
-        data_rows = []
-        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        for m in range(1, 13):
-            df_m = df[df['Month'] == m]
-            if df_m.empty: continue
-            
-            db04 = df_m['DB'].quantile(0.996)
-            db20 = df_m['DB'].quantile(0.980)
-            db996 = df_m['DB'].quantile(0.004)
-            db990 = df_m['DB'].quantile(0.010)
-            range_c = (df_m.groupby('Day')['DB'].max() - df_m.groupby('Day')['DB'].min()).mean()
-            
-            data_rows.append({
-                'Mes': meses[m-1],
-                'DB04': db04, 'DB04F': (db04*9/5)+32, 'MCWB04': calc_mcwb(df_m, db04), 'MCWB04F': (calc_mcwb(df_m, db04)*9/5)+32,
-                'DB20': db20, 'DB20F': (db20*9/5)+32, 'MCWB20': calc_mcwb(df_m, db20), 'MCWB20F': (calc_mcwb(df_m, db20)*9/5)+32,
-                'DB996': db996, 'DB996F': (db996*9/5)+32, 'DB990': db990, 'DB990F': (db990*9/5)+32,
-                'RangeC': range_c, 'RangeF': range_c*9/5
-            })
-
-        lat_str = format_coord(lat, True)
-        lon_str = format_coord(lon, False)
-        stdp_display = calc_stdp(alt_display)
-        
-        try:
-            alt_ft = float(alt_display) * 3.28084
-            alt_ft_str = f"{alt_ft:.1f}"
-        except:
-            alt_ft_str = "0.0"
-
-        # --- CONSTRUCCIÓN DE HTML PREMIUM ---
-        filas = "".join([f"""
-        <tr>
-            <td style="text-align:left; font-weight:bold; background-color:#f8f9fa;">{r['Mes']}</td>
-            <td>{r['DB04']:.1f}</td><td>{r['DB04F']:.1f}</td><td>{r['MCWB04']:.1f}</td><td>{r['MCWB04F']:.1f}</td>
-            <td>{r['DB20']:.1f}</td><td>{r['DB20F']:.1f}</td><td>{r['MCWB20']:.1f}</td><td>{r['MCWB20F']:.1f}</td>
-            <td>{r['DB996']:.1f}</td><td>{r['DB996F']:.1f}</td><td>{r['DB990']:.1f}</td><td>{r['DB990F']:.1f}</td>
-            <td>{r['RangeC']:.1f}</td><td>{r['RangeF']:.1f}</td>
-        </tr>""" for r in data_rows])
-        
-        html_content = f"""
-        <html><head><style>
-            @page {{ size: A4 landscape; margin: 1cm; }}
-            body {{ font-family: 'Times New Roman', serif; font-size: 11px; color: #000; }}
-            
-            .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-top: 15px; margin-bottom: 15px; }}
-            
-            table {{ width: 100%; border-collapse: collapse; }}
-            .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
-            .meta-table td {{ border: none; text-align: center; padding: 3px; }}
-            
-            .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
-            .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
-            .data-table th {{ font-weight: bold; font-size: 9px; }}
-            .azul {{ background-color: #2e75b6; color: white; border: 1px solid #1e5a99; }}
-            .naranja {{ background-color: #e46c0a; color: white; border: 1px solid #b35508; }}
-            .verde {{ background-color: #28a745; color: white; border: 1px solid #1e7e34; }}
-            .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
-            
-            .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
-        </style></head>
-        <body>
-            <div class="location-header">CONDICIONES CLIMÁTICAS DE DISEÑO</div>
-            <div style="text-align: center; font-weight: bold; font-size: 13px; margin-bottom: 10px;">{city_display} (WMO: {wmo_display})</div>
-            
-            <table class="meta-table">
-                <tr>
-                    <td>Lat: <strong>{lat_str}</strong></td>
-                    <td>Lon: <strong>{lon_str}</strong></td>
-                    <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
-                    <td>StdP: <strong>{stdp_display}</strong></td>
-                    <td>Time zone: <strong>-5.00 (W05)</strong></td>
-                    <td>Period: <strong>{period_display}</strong></td>
-                    <td>WBAN: <strong>99999</strong></td>
-                </tr>
-            </table>
-            
+            tabla_html = f"""
             <table class="data-table">
                 <tr>
                     <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
@@ -296,11 +215,111 @@ if st.button("Generar Reporte Profesional"):
                     <th class="verde">°C</th><th class="verde">°F</th>
                 </tr>
                 {filas}
-            </table>
+            </table>"""
+
+        # ==========================================
+        # MODO B: SATELITAL - PERCENTILES DE DISEÑO
+        # ==========================================
+        elif tipo_reporte_satelital == "Condiciones de Diseño (Percentiles)":
+            city_display = get_location_name(lat, lon).upper()
+            wmo_display = "SATELITAL"
+            period_display = "2024"
             
-            <div class="footer">{fuente}</div>
-        </body></html>"""
-        
-        pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte maestro generado con éxito!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_Clima_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+            url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start=20240101&end=20241231&format=JSON"
+            try:
+                res = requests.get(url, timeout=20).json()
+                alt_display = str(round(res['geometry']['coordinates'][2], 1))
+                db_vals = list(res['properties']['parameter']['T2M'].values())
+                wb_vals = list(res['properties']['parameter']['T2MWET'].values())
+                df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
+                df['Month'] = pd.date_range(start="2024-01-01", periods=len(df), freq='h').month
+                df['Day'] = pd.date_range(start="2024-01-01", periods=len(df), freq='h').date
+            except:
+                st.error("Error al conectar con la base de datos satelital.")
+                st.stop()
+
+            fuente = "Generado mediante reanálisis de datos satelitales NASA (Año 2024). Procesado metodológicamente."
+            
+            # Mismos cálculos que local
+            def calc_mcwb(sub, t):
+                h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
+                return h['WB'].mean() if not h.empty else sub['WB'].max()
+
+            data_rows = []
+            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            for m in range(1, 13):
+                df_m = df[df['Month'] == m]
+                if df_m.empty: continue
+                db04 = df_m['DB'].quantile(0.996)
+                db20 = df_m['DB'].quantile(0.980)
+                db996 = df_m['DB'].quantile(0.004)
+                db990 = df_m['DB'].quantile(0.010)
+                range_c = (df_m.groupby('Day')['DB'].max() - df_m.groupby('Day')['DB'].min()).mean()
+                
+                data_rows.append({
+                    'Mes': meses[m-1], 'DB04': db04, 'DB04F': (db04*9/5)+32, 'MCWB04': calc_mcwb(df_m, db04), 'MCWB04F': (calc_mcwb(df_m, db04)*9/5)+32,
+                    'DB20': db20, 'DB20F': (db20*9/5)+32, 'MCWB20': calc_mcwb(df_m, db20), 'MCWB20F': (calc_mcwb(df_m, db20)*9/5)+32,
+                    'DB996': db996, 'DB996F': (db996*9/5)+32, 'DB990': db990, 'DB990F': (db990*9/5)+32, 'RangeC': range_c, 'RangeF': range_c*9/5
+                })
+
+            filas = "".join([f"""
+            <tr>
+                <td style="text-align:left; font-weight:bold; background-color:#f8f9fa;">{r['Mes']}</td>
+                <td>{r['DB04']:.1f}</td><td>{r['DB04F']:.1f}</td><td>{r['MCWB04']:.1f}</td><td>{r['MCWB04F']:.1f}</td>
+                <td>{r['DB20']:.1f}</td><td>{r['DB20F']:.1f}</td><td>{r['MCWB20']:.1f}</td><td>{r['MCWB20F']:.1f}</td>
+                <td>{r['DB996']:.1f}</td><td>{r['DB996F']:.1f}</td><td>{r['DB990']:.1f}</td><td>{r['DB990F']:.1f}</td>
+                <td>{r['RangeC']:.1f}</td><td>{r['RangeF']:.1f}</td>
+            </tr>""" for r in data_rows])
+
+            tabla_html = f"""
+            <table class="data-table">
+                <tr>
+                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
+                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
+                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
+                    <th colspan="2" class="verde">MCDBR</th>
+                </tr>
+                <tr>
+                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
+                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
+                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
+                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
+                </tr>
+                <tr>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
+                    <th class="verde">°C</th><th class="verde">°F</th>
+                </tr>
+                {filas}
+            </table>"""
+
+        # ==========================================
+        # MODO C: REPORTE DE INDICADORES OFICIALES NASA (2001-2024)
+        # ==========================================
+        else:
+            city_display = get_location_name(lat, lon).upper()
+            wmo_display = "NASA-INDICATORS"
+            period_display = "2001-2024"
+            
+            # Consultamos directamente la API oficial de Indicadores de la NASA
+            url = f"https://power.larc.nasa.gov/api/application/indicators/point?start=2001&end=2024&latitude={lat}&longitude={lon}&format=JSON&user=DAVE"
+            try:
+                res = requests.get(url, timeout=20).json()
+                alt_display = str(round(res['geometry']['coordinates'][2], 1))
+                params = res['properties']['parameter']
+                
+                # Mapeamos los indicadores clave para mostrarlos de forma limpia y profesional
+                indicadores_dict = {
+                    "CDD18_3": "Grados Día de Refrigeración (Base 18.3°C)",
+                    "HDD18_3": "Grados Día de Calefacción (Base 18.3°C)",
+                    "FROST_DAYS": "Días de Heladas al Año (Temp < 0°C)",
+                    "T2M_MAX_AVG": "Promedio de Temperaturas Máximas Anuales",
+                    "T2M_MIN_AVG": "Promedio de Temperaturas Mínimas Anuales",
+                    "T2M_RANGE_AVG": "Oscilación Térmica Promedio Diaria Anual"
+                }
+                
+                filas_indicators = ""
+                for k, name in indicadores_dict.items():
+                    if k in params:
+                        # Obtenemos el valor promedio anual
