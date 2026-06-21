@@ -47,7 +47,7 @@ def clean_city_name(filename):
     except:
         return filename
 
-# 2. Función para obtener ubicación real por coordenadas (Geocodificación)
+# 2. Función para obtener ubicación real por coordenadas
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
@@ -74,7 +74,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas (N/S, E/W) estilo ASHRAE
+# 4. Función para formatear coordenadas (N/S, E/W)
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -103,7 +103,6 @@ usar_local = selected_city != OPCION_MANUAL
 lat = col2.number_input("Latitud", value=-12.022, format="%.4f", disabled=usar_local)
 lon = col3.number_input("Longitud", value=-77.114, format="%.4f", disabled=usar_local)
 
-# Periodos actualizados referenciados al cierre del 2024
 periodo_opciones = [
     "2000-2024 (25 Años - Estándar Histórico ASHRAE)",
     "2010-2024 (15 Años - Ciclo Corto)", 
@@ -114,7 +113,6 @@ periodo_opciones = [
 periodo_str = col3.selectbox("Periodo Satelital NASA:", periodo_opciones, disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
-    # Mensaje dinámico según los años elegidos
     msg_spinner = "Procesando matriz meteorológica satelital de 25 años (~45 segundos)..." if "25 Años" in periodo_str else "Procesando matriz meteorológica..."
     
     with st.spinner(msg_spinner):
@@ -124,7 +122,7 @@ if st.button("Generar Reporte Profesional"):
         alt_display = "0"
         period_display = "N/A"
         wmo_display = "N/A"
-        start_date_for_range = "2024"
+        start_date_for_range = "2024-01-01"
 
         # A) LÓGICA LOCAL (EPW PRE-CARGADO)
         if usar_local:
@@ -156,12 +154,11 @@ if st.button("Generar Reporte Profesional"):
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
             start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL NASA - RANGO DINÁMICO EXTENDIDO)
+        # B) LÓGICA MANUAL (SATELITAL NASA) - CON ESCUDO ANTI-ERRORES
         else:
             city_display = get_location_name(lat, lon).upper()
             wmo_display = "SATELITAL"
             
-            # Rangos ajustados al 2024
             if "25 Años" in periodo_str: start_year, end_year = 2000, 2024
             elif "15 Años" in periodo_str: start_year, end_year = 2010, 2024
             elif "10 Años" in periodo_str: start_year, end_year = 2015, 2024
@@ -174,20 +171,37 @@ if st.button("Generar Reporte Profesional"):
             dfs = []
             for y in range(start_year, end_year + 1):
                 url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={y}0101&end={y}1231&format=JSON"
-                res = requests.get(url).json()
                 
-                if y == start_year:
-                    alt_display = str(round(res['geometry']['coordinates'][2], 1))
-                
-                db_vals = list(res['properties']['parameter']['T2M'].values())
-                wb_vals = list(res['properties']['parameter']['T2MWET'].values())
-                
-                temp_df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
-                temp_df['Month'] = pd.date_range(start=f"{y}-01-01", periods=len(temp_df), freq='h').month
-                dfs.append(temp_df)
+                try:
+                    res = requests.get(url, timeout=20).json()
+                    
+                    # Verificación vital: ¿Nos dio la NASA datos o nos dio un error?
+                    if 'properties' not in res or 'parameter' not in res['properties']:
+                        st.warning(f"Advertencia: La NASA no devolvió datos válidos para el año {y}.")
+                        continue
+                    
+                    # Extraer altitud solo si la llave geometry existe
+                    if y == start_year and 'geometry' in res:
+                        alt_display = str(round(res['geometry']['coordinates'][2], 1))
+                    
+                    db_vals = list(res['properties']['parameter']['T2M'].values())
+                    wb_vals = list(res['properties']['parameter']['T2MWET'].values())
+                    
+                    temp_df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
+                    temp_df['Month'] = pd.date_range(start=f"{y}-01-01", periods=len(temp_df), freq='h').month
+                    dfs.append(temp_df)
+                    
+                except Exception as e:
+                    st.warning(f"Fallo de conexión al procesar el año {y}.")
+                    continue # Salta este año y sigue con el próximo
+            
+            # Si el bucle falló en TODOS los años, detenemos la app aquí
+            if not dfs:
+                st.error("❌ ERROR CRÍTICO: No se pudo descargar ningún dato de la NASA. Revisa las coordenadas o intenta más tarde.")
+                st.stop()
                 
             df = pd.concat(dfs, ignore_index=True)
-            horas_totales = (end_year - start_year + 1) * 8760
+            horas_totales = len(df)
             fuente = f"Generado mediante reanálisis de datos satelitales NASA ({start_year}-{end_year}). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
 
         # Cálculos Estadísticos Avanzados de Ingeniería ASHRAE
@@ -221,7 +235,6 @@ if st.button("Generar Reporte Profesional"):
         lon_str = format_coord(lon, False)
         stdp_display = calc_stdp(alt_display)
         
-        # Conversión reglamentaria de Altitud (Metros y Pies)
         try:
             alt_ft = float(alt_display) * 3.28084
             alt_ft_str = f"{alt_ft:.1f}"
@@ -300,5 +313,5 @@ if st.button("Generar Reporte Profesional"):
         </body></html>"""
         
         pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte maestro generado!")
+        st.success("¡Reporte maestro generado con éxito!")
         st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
