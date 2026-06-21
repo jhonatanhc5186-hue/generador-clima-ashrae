@@ -33,14 +33,13 @@ def clean_city_name(filename):
             base_name = " ".join(city_words)
             ciudad = base_name.split('-')[0].strip() 
             
-            # --- CORRECCIÓN DE ERRORES DE ORIGEN (CLIMATE.ONEBUILDING) ---
+            # Corrección de errores de origen en nombres de archivos
             correcciones = {
                 "Tacna": "Tacna",
                 "Ilo": "Moquegua"
             }
             if ciudad in correcciones:
                 departamento = correcciones[ciudad]
-            # -------------------------------------------------------------
 
             return f"{pais} - {departamento} - {ciudad}"
             
@@ -48,7 +47,7 @@ def clean_city_name(filename):
     except:
         return filename
 
-# 2. Función para obtener ubicación real por coordenadas
+# 2. Función para obtener ubicación real por coordenadas (Geocodificación)
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
@@ -75,7 +74,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas (N/S, E/W)
+# 4. Función para formatear coordenadas (N/S, E/W) estilo ASHRAE
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -104,16 +103,21 @@ usar_local = selected_city != OPCION_MANUAL
 lat = col2.number_input("Latitud", value=-12.022, format="%.4f", disabled=usar_local)
 lon = col3.number_input("Longitud", value=-77.114, format="%.4f", disabled=usar_local)
 
+# Periodos actualizados referenciados al cierre del 2024
 periodo_opciones = [
-    "2023 (1 Año de prueba)", 
-    "2019-2023 (5 Años)", 
-    "2014-2023 (10 Años)", 
-    "2009-2023 (15 Años - Estándar ASHRAE)"
+    "2000-2024 (25 Años - Estándar Histórico ASHRAE)",
+    "2010-2024 (15 Años - Ciclo Corto)", 
+    "2015-2024 (10 Años)", 
+    "2020-2024 (5 Años)",
+    "2024 (1 Año de prueba)"
 ]
 periodo_str = col3.selectbox("Periodo Satelital NASA:", periodo_opciones, disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
-    with st.spinner("Procesando matriz meteorológica. (Aviso: un periodo de 15 años puede tardar ~25 segundos en descargar)..."):
+    # Mensaje dinámico según los años elegidos
+    msg_spinner = "Procesando matriz meteorológica satelital de 25 años (~45 segundos)..." if "25 Años" in periodo_str else "Procesando matriz meteorológica..."
+    
+    with st.spinner(msg_spinner):
         fuente = ""
         df = None
         city_display = "Ubicación"
@@ -132,7 +136,7 @@ if st.button("Generar Reporte Profesional"):
                 partes_punto = filename.replace(".epw", "").split('.')
                 for p in partes_punto:
                     if "-" in p and len(p) == 9 and p.split('-')[0].isdigit():
-                        period_display = f"{p} (TMYx)"
+                        period_display = p
                         break
             except:
                 pass
@@ -152,15 +156,17 @@ if st.button("Generar Reporte Profesional"):
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
             start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL NASA - MULTIAÑO)
+        # B) LÓGICA MANUAL (SATELITAL NASA - RANGO DINÁMICO EXTENDIDO)
         else:
             city_display = get_location_name(lat, lon).upper()
             wmo_display = "SATELITAL"
             
-            if "15 Años" in periodo_str: start_year, end_year = 2009, 2023
-            elif "10 Años" in periodo_str: start_year, end_year = 2014, 2023
-            elif "5 Años" in periodo_str: start_year, end_year = 2019, 2023
-            else: start_year, end_year = 2023, 2023
+            # Rangos ajustados al 2024
+            if "25 Años" in periodo_str: start_year, end_year = 2000, 2024
+            elif "15 Años" in periodo_str: start_year, end_year = 2010, 2024
+            elif "10 Años" in periodo_str: start_year, end_year = 2015, 2024
+            elif "5 Años" in periodo_str: start_year, end_year = 2020, 2024
+            else: start_year, end_year = 2024, 2024
                 
             period_display = f"{start_year}-{end_year}"
             start_date_for_range = f"{start_year}-01-01"
@@ -182,9 +188,9 @@ if st.button("Generar Reporte Profesional"):
                 
             df = pd.concat(dfs, ignore_index=True)
             horas_totales = (end_year - start_year + 1) * 8760
-            fuente = f"Generado mediante reanálisis de datos satelitales NASA ({start_year}-{end_year}). Extracción percentilar matemática derivada de {horas_totales} horas de data continua."
+            fuente = f"Generado mediante reanálisis de datos satelitales NASA ({start_year}-{end_year}). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
 
-        # Cálculos de Ingeniería ASHRAE
+        # Cálculos Estadísticos Avanzados de Ingeniería ASHRAE
         df['Day'] = pd.date_range(start=start_date_for_range, periods=len(df), freq='h').date
         
         def calc_mcwb(sub, t):
@@ -215,7 +221,7 @@ if st.button("Generar Reporte Profesional"):
         lon_str = format_coord(lon, False)
         stdp_display = calc_stdp(alt_display)
         
-        # Calcular altitud en pies
+        # Conversión reglamentaria de Altitud (Metros y Pies)
         try:
             alt_ft = float(alt_display) * 3.28084
             alt_ft_str = f"{alt_ft:.1f}"
