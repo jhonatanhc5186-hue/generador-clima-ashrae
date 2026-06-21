@@ -4,8 +4,8 @@ import requests
 import os
 from weasyprint import HTML
 
-st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
-st.title("🌍 Generador de Reportes Climáticos ASHRAE")
+st.set_page_config(page_title="Generador de Reportes Climáticos", layout="wide")
+st.title("🌍 Generador de Reportes: Condiciones Climáticas de Diseño")
 
 # 1. Función para decodificar archivos locales con corrección geográfica
 def clean_city_name(filename):
@@ -33,7 +33,6 @@ def clean_city_name(filename):
             base_name = " ".join(city_words)
             ciudad = base_name.split('-')[0].strip() 
             
-            # Corrección de errores de origen en nombres de archivos
             correcciones = {
                 "Tacna": "Tacna",
                 "Ilo": "Moquegua"
@@ -51,7 +50,7 @@ def clean_city_name(filename):
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        headers = {'User-Agent': 'GeneradorASHRAE_Peru_v3'}
+        headers = {'User-Agent': 'GeneradorClima_Peru_v3'}
         response = requests.get(url, headers=headers, timeout=5).json()
         address = response.get('address', {})
         
@@ -74,7 +73,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas estilo ASHRAE
+# 4. Función para formatear coordenadas al estilo normativo estándar (N/S, E/W)
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -91,37 +90,32 @@ def get_epw_mapping():
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
     return {clean_city_name(f): f for f in sorted(files)}
 
-# --- INTERFAZ STREAMLIT REDISEÑADA ---
+# --- INTERFAZ STREAMLIT ---
 
-# Botones superiores para elegir el modo de trabajo
 modo = st.radio(
     "Seleccione el método de generación:",
     ["🏢 Búsqueda por Estación de Ciudad", "📍 Búsqueda por Coordenadas (Satélite)"],
     horizontal=True
 )
 
-st.markdown("---") # Línea separadora elegante
+st.markdown("---") 
 
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
-# Lógica de la interfaz según el botón seleccionado
 if modo == "🏢 Búsqueda por Estación de Ciudad":
     usar_local = True
     selected_city = col1.selectbox("Seleccionar ciudad de la base de datos:", list(file_map.keys()))
-    # Bloqueamos visualmente las coordenadas
     lat = col2.number_input("Latitud", value=0.0000, format="%.4f", disabled=True)
     lon = col3.number_input("Longitud", value=0.0000, format="%.4f", disabled=True)
 else:
     usar_local = False
     selected_city = None
-    # Mostramos un aviso de que el año está fijado a 2024 en la primera columna
     col1.info("📅 Periodo de análisis fijado: Año 2024")
-    # Habilitamos las coordenadas
     lat = col2.number_input("Latitud", value=-14.0837, format="%.4f")
-    lon = col3.number_input("Longitud", value=-75.7460, format="%.4f")
+    lon = col3.number_input("Longitud", value=-77.7460, format="%.4f")
 
-st.markdown("<br>", unsafe_allow_html=True) # Espaciado
+st.markdown("<br>", unsafe_allow_html=True) 
 
 if st.button("Generar Reporte Profesional"):
     msg_spinner = "Leyendo archivo EPW local..." if usar_local else "Procesando datos satelitales NASA (Año 2024)..."
@@ -165,19 +159,16 @@ if st.button("Generar Reporte Profesional"):
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
             start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL NASA) - FIJADA ESTRICTAMENTE A 2024
+        # B) LÓGICA MANUAL (SATELITAL NASA) - FIJADA A 2024
         else:
             city_display = get_location_name(lat, lon).upper()
             wmo_display = "SATELITAL"
             
-            # Variables fijadas al año 2024
             start_year, end_year = 2024, 2024
-            
             url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={start_year}0101&end={end_year}1231&format=JSON"
             
             try:
                 res = requests.get(url, timeout=20).json()
-                
                 if 'properties' not in res or 'parameter' not in res['properties']:
                     st.error(f"❌ ERROR: La NASA no devolvió datos válidos para el año {start_year} en esas coordenadas.")
                     st.stop()
@@ -201,7 +192,7 @@ if st.button("Generar Reporte Profesional"):
             horas_totales = len(df)
             fuente = f"Generado mediante reanálisis de datos satelitales NASA (Año 2024). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
 
-        # Cálculos Estadísticos Avanzados de Ingeniería ASHRAE
+        # Cálculos Estadísticos Avanzados de Ingeniería Climática
         df['Day'] = pd.date_range(start=start_date_for_range, periods=len(df), freq='h').date
         
         def calc_mcwb(sub, t):
@@ -270,7 +261,8 @@ if st.button("Generar Reporte Profesional"):
             .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
         </style></head>
         <body>
-            <div class="location-header">{city_display} (WMO: {wmo_display})</div>
+            <div class="location-header">CONDICIONES CLIMÁTICAS DE DISEÑO</div>
+            <div style="text-align: center; font-weight: bold; font-size: 13px; margin-bottom: 10px;">{city_display} (WMO: {wmo_display})</div>
             
             <table class="meta-table">
                 <tr>
@@ -311,4 +303,4 @@ if st.button("Generar Reporte Profesional"):
         
         pdf_file = HTML(string=html_content).write_pdf()
         st.success("¡Reporte maestro generado con éxito!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_Clima_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
