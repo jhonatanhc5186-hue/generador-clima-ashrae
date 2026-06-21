@@ -10,7 +10,7 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador de Reportes Climáticos", layout="wide")
 st.title("🌍 Generador de Reportes: Condiciones Climáticas de Diseño")
 
-# --- 1. FUNCIONES BASE ---
+# --- 1. FUNCIONES BASE Y GEOLOCALIZACIÓN ---
 def clean_city_name(filename):
     dept_map = {
         "AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa",
@@ -39,6 +39,18 @@ def get_epw_mapping():
 def format_coord(val, is_lat):
     try: return f"{abs(float(val)):.4f}{'N' if float(val) >= 0 else 'S'}" if is_lat else f"{abs(float(val)):.4f}{'E' if float(val) >= 0 else 'W'}"
     except: return str(val)
+
+def get_location_name(lat, lon):
+    """Obtiene el nombre de la ciudad y país basado en coordenadas reales"""
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=5).json()
+        address = res.get('address', {})
+        pais = address.get('country', 'PERÚ').upper()
+        ciudad = address.get('city', address.get('town', address.get('village', address.get('county', 'UBICACIÓN DESCONOCIDA')))).upper()
+        return f"{ciudad}, {pais}"
+    except: 
+        return f"LAT: {lat}, LON: {lon}"
 
 # --- 2. MOTOR TERMODINÁMICO ---
 def calc_wb(T, RH):
@@ -84,13 +96,14 @@ css_base = """
     th, td { border: 1px solid black !important; padding: 1px 2px !important; text-align: center !important; line-height: 1.1 !important; word-wrap: break-word !important; }
     .header-blue, th.nasa-blue { background-color: #0000cc !important; color: white !important; font-weight: bold; padding: 2px !important; border: 1px solid #0000cc !important; }
     .gray-header td { font-weight: bold; background-color: #ffffff !important; } 
-    .title-bar { text-align: center; font-weight: bold; margin-bottom: 5px; color: #000; }
+    .title-bar { text-align: center; font-weight: bold; margin-bottom: 3px; color: #000; }
+    .location-pin { text-align: center; font-weight: bold; margin-bottom: 6px; color: #000; }
     a { display: none !important; }
 </style>
 """
 
-css_pdf = css_base + "<style> body, td { font-size: 6px !important; } .header-blue, th.nasa-blue { font-size: 7px !important; } .title-bar { font-size: 9px !important; } </style>"
-css_preview = css_base + "<style> body, td { font-size: 11px !important; } .header-blue, th.nasa-blue { font-size: 13px !important; } .title-bar { font-size: 16px !important; } table { margin-bottom: 15px !important; } </style>"
+css_pdf = css_base + "<style> body, td { font-size: 6px !important; } .header-blue, th.nasa-blue { font-size: 7px !important; } .title-bar { font-size: 11px !important; } .location-pin { font-size: 12px !important; } </style>"
+css_preview = css_base + "<style> body, td { font-size: 11px !important; } .header-blue, th.nasa-blue { font-size: 13px !important; } .title-bar { font-size: 16px !important; } .location-pin { font-size: 15px !important; } table { margin-bottom: 15px !important; } </style>"
 
 if st.button("Generar Reporte Maestro"):
     
@@ -98,16 +111,26 @@ if st.button("Generar Reporte Maestro"):
         # =========================================================
         # MODO COORDENADAS: EXTRACCIÓN HTML DE LA NASA
         # =========================================================
-        with st.spinner("Conectando con servidores satelitales..."):
+        with st.spinner("Conectando con servidores satelitales (Esto puede tomar hasta 45 segundos)..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
-                respuesta = requests.get(api_url, timeout=30)
+                # Se aumenta el timeout a 45s por saturación de servidores de NASA
+                respuesta = requests.get(api_url, timeout=45)
+                
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
+                    # Filtro de Privacidad y renombramiento de título
                     html_limpio = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_limpio = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_limpio)
                     html_limpio = html_limpio.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
+                    
+                    # INYECCIÓN DE PIN DE UBICACIÓN
+                    loc_name = get_location_name(lat, lon)
+                    pin_html = f"<div class='location-pin'><span style='color: #d9534f;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
+                    
+                    # Insertar el Pin justo antes de la primera tabla
+                    html_limpio = html_limpio.replace("<table", f"{pin_html}\n<table", 1)
                     
                     html_preview_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_preview))
                     html_pdf_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_pdf))
@@ -118,9 +141,10 @@ if st.button("Generar Reporte Maestro"):
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
                     st.download_button(label="📥 Descargar Reporte (PDF Vertical)", data=pdf_file, file_name=f"Condiciones_Climaticas_{lat}_{lon}.pdf", mime="application/pdf")
-                else: st.error("Error al obtener información satelital de la NASA.")
+                else: 
+                    st.error(f"Error de la API NASA: Servidores saturados o inestables (HTTP {respuesta.status_code}). Por favor, intente nuevamente en unos minutos.")
             except Exception as e: 
-                st.error(f"Error de conexión: {e}")
+                st.error("Error de conexión: Tiempo de espera agotado. Los servidores de NASA POWER están ocupados en este momento.")
 
     else:
         # =========================================================
@@ -134,8 +158,10 @@ if st.button("Generar Reporte Maestro"):
                     if "-" in p and len(p) == 9 and p.split('-')[0].isdigit(): period_display = p
                 with open(f"data/{filename}", 'r', encoding='utf-8') as f:
                     h_data = f.readline().split(',')
+                    wmo_display = h_data[5].strip()
                     lat_val, lon_val, alt_display = float(h_data[6]), float(h_data[7]), float(h_data[9].strip())
-            except: lat_val, lon_val, alt_display = 0, 0, 0
+            except: 
+                wmo_display, lat_val, lon_val, alt_display = "000000", 0, 0, 0
 
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,3,6,7,8,9,13,14,15,21,33], names=['Month','Day','Hour','DB','DP','RH','Press','GloHorz','DirNorm','DifHorz','WS','Precip'])
             df['Press_kPa'] = df['Press'] / 1000
@@ -179,7 +205,7 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("CDH23.3", 1, 2, False)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
             m_rows += build_row([("CDH26.7", 1, 2, False)], lambda x: (x['DB'] - 26.7).clip(lower=0).sum())
             
-            # 2. Wind (Franja azul del mismo tamaño que la cabecera principal)
+            # 2. Wind
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Wind (m/s)", 1, 1, True), ("WSAvg", 1, 2, False)], lambda x: x['WS'].mean())
             
@@ -229,10 +255,15 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("All-Sky Solar<br>Radiation (W m-2)", 2, 1, True), ("RadAvg", 1, 2, False)], lambda x: (x['GloHorz'].mean() * 24 / 1000) if not x.empty else 0)
             m_rows += build_row([("RadStd", 1, 2, False)], lambda x: (x['GloHorz'].std() * 24 / 1000) if not x.empty else 0)
 
+            # --- CONSTRUCCIÓN DEL PIN PARA EPW ---
+            city_only = selected_city.split('-')[-1].strip().upper()
+            pin_html = f"<div class='location-pin'><span style='color: #d9534f;'>📍</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
+
             html_base = f"""
             <html><head></head>
             <body>
                 <div class="title-bar">CONDICIONES CLIMÁTICAS DE DISEÑO</div>
+                {pin_html}
                 
                 <table style="border:none; border-top:1.5px solid #000; border-bottom:1.5px solid #000; margin-bottom:5px;">
                     <tr>
