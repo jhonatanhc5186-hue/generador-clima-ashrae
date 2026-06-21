@@ -12,8 +12,8 @@ lon = col2.number_input("Longitud", value=-77.0234, format="%.4f")
 year = col3.selectbox("Año:", list(range(2024, 2014, -1)))
 
 if st.button("Generar Reporte"):
-    with st.spinner("Generando reporte profesional..."):
-        # 1. Cálculos (Lógica anterior)
+    with st.spinner("Procesando cálculos..."):
+        # 1. Obtención de datos
         url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={year}0101&end={year}1231&format=JSON"
         res = requests.get(url).json()
         df = pd.DataFrame({'DB': list(res['properties']['parameter']['T2M'].values()), 
@@ -21,6 +21,7 @@ if st.button("Generar Reporte"):
         df['Month'] = pd.date_range(start=f"{year}-01-01", periods=len(df), freq='h').month
         df['Day'] = pd.date_range(start=f"{year}-01-01", periods=len(df), freq='h').date
 
+        # 2. Cálculos ASHRAE
         def calc_mcwb(sub, t):
             h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
             return h['WB'].mean() if not h.empty else sub['WB'].max()
@@ -33,31 +34,32 @@ if st.button("Generar Reporte"):
             if df_m.empty: continue
             db_04 = df_m['DB'].quantile(0.996)
             db_20 = df_m['DB'].quantile(0.980)
-            db_996 = df_m['DB'].quantile(0.004)
-            db_990 = df_m['DB'].quantile(0.010)
-            range_c = (df_m.groupby('Day')['DB'].max() - df_m.groupby('Day')['DB'].min()).mean()
-            
             data_rows.append({
-                'Mes': meses[m-1], 'DB04': db_04, 'DB04F': (db_04*9/5)+32, 'MCWB04': calc_mcwb(df_m, db_04), 'MCWB04F': (calc_mcwb(df_m, db_04)*9/5)+32,
-                'DB20': db_20, 'DB20F': (db_20*9/5)+32, 'MCWB20': calc_mcwb(df_m, db_20), 'MCWB20F': (calc_mcwb(df_m, db_20)*9/5)+32,
-                'H996': db_996, 'H996F': (db_996*9/5)+32, 'H990': db_990, 'H990F': (db_990*9/5)+32, 'R': range_c, 'RF': range_c*9/5
+                'Mes': meses[m-1],
+                'DB04': db_04, 'DB04F': (db_04 * 9/5) + 32,
+                'MCWB04': calc_mcwb(df_m, db_04), 'MCWB04F': (calc_mcwb(df_m, db_04) * 9/5) + 32,
+                'DB20': db_20, 'DB20F': (db_20 * 9/5) + 32,
+                'MCWB20': calc_mcwb(df_m, db_20), 'MCWB20F': (calc_mcwb(df_m, db_20) * 9/5) + 32
             })
 
-        # 2. Construcción del HTML Identico
-        filas = "".join([f"<tr><td>{r['Mes']}</td><td>{r['DB04']:.1f}</td><td>{r['DB04F']:.1f}</td><td>{r['MCWB04']:.1f}</td><td>{r['MCWB04F']:.1f}</td><td>{r['DB20']:.1f}</td><td>{r['DB20F']:.1f}</td><td>{r['MCWB20']:.1f}</td><td>{r['MCWB20F']:.1f}</td><td>{r['H996']:.1f}</td><td>{r['H996F']:.1f}</td><td>{r['H990']:.1f}</td><td>{r['H990F']:.1f}</td><td>{r['R']:.1f}</td><td>{r['RF']:.1f}</td></tr>" for r in data_rows])
+        # 3. Construcción del HTML (Corregida)
+        filas = ""
+        for r in data_rows:
+            filas += f"<tr><td>{r['Mes']}</td><td>{r['DB04']:.1f}</td><td>{r['DB04F']:.1f}</td><td>{r['MCWB04']:.1f}</td><td>{r['MCWB04F']:.1f}</td><td>{r['DB20']:.1f}</td><td>{r['DB20F']:.1f}</td><td>{r['MCWB20']:.1f}</td><td>{r['MCWB20F']:.1f}</td></tr>"
 
         html_content = f"""
-        <html>
-        <head><style>
-            @page {{ size: A4 landscape; }}
-            table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 10px; }}
-            th, td {{ border: 1px solid #999; padding: 4px; text-align: center; }}
-            .c1 {{ background-color: #2e75b6; color: white; }}
-            .c2 {{ background-color: #c65911; color: white; }}
-            .c3 {{ background-color: #548235; color: white; }}
-        </style></head>
-        <body>
-            <h2 style="color: #2e75b6; border-bottom: 2px solid #2e75b6;">CONDICIONES CLIMÁTICAS MENSUALES DE DISEÑO</h2>
-            <p><strong>Ubicación:</strong> NASA Data | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon}</p>
-            <table>
-                <tr><th rowspan="2">Mes</th><th colspan="4" class="c1">Refrigeración (Cooling)</th><th colspan="
+<html>
+<body>
+    <h1>Reporte ASHRAE</h1>
+    <table border="1">
+        <tr><th>Mes</th><th>DB 0.4% °C</th><th>°F</th><th>MCWB 0.4% °C</th><th>°F</th><th>DB 2.0% °C</th><th>°F</th><th>MCWB 2.0% °C</th><th>°F</th></tr>
+        {filas}
+    </table>
+</body>
+</html>
+"""
+        
+        # 4. Generar PDF
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte listo!")
+        st.download_button("📥 Descargar PDF", data=pdf_file, file_name="reporte.pdf", mime="application/pdf")
