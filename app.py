@@ -277,4 +277,22 @@ if st.button("Generar Reporte Profesional"):
                 </tr>
                 <tr>
                     <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
-                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0
+                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
+                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
+                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
+                </tr>
+                <tr>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
+                    <th class="verde">°C</th><th class="verde">°F</th>
+                </tr>
+                {filas}
+            </table>
+            
+            <div class="footer">{fuente}</div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte maestro generado!")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
