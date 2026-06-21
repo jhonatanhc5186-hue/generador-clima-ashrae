@@ -33,6 +33,7 @@ def clean_city_name(filename):
             base_name = " ".join(city_words)
             ciudad = base_name.split('-')[0].strip() 
             
+            # Corrección de errores de origen en nombres de archivos
             correcciones = {
                 "Tacna": "Tacna",
                 "Ilo": "Moquegua"
@@ -90,30 +91,40 @@ def get_epw_mapping():
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
     return {clean_city_name(f): f for f in sorted(files)}
 
-# --- INTERFAZ STREAMLIT ---
+# --- INTERFAZ STREAMLIT REDISEÑADA ---
+
+# Botones superiores para elegir el modo de trabajo
+modo = st.radio(
+    "Seleccione el método de generación:",
+    ["🏢 Búsqueda por Estación de Ciudad", "📍 Búsqueda por Coordenadas (Satélite)"],
+    horizontal=True
+)
+
+st.markdown("---") # Línea separadora elegante
+
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
-OPCION_MANUAL = "-- Ingresar Coordenadas Manualmente --"
-selected_city = col1.selectbox("Seleccionar ciudad:", [OPCION_MANUAL] + list(file_map.keys()))
+# Lógica de la interfaz según el botón seleccionado
+if modo == "🏢 Búsqueda por Estación de Ciudad":
+    usar_local = True
+    selected_city = col1.selectbox("Seleccionar ciudad de la base de datos:", list(file_map.keys()))
+    # Bloqueamos visualmente las coordenadas
+    lat = col2.number_input("Latitud", value=0.0000, format="%.4f", disabled=True)
+    lon = col3.number_input("Longitud", value=0.0000, format="%.4f", disabled=True)
+else:
+    usar_local = False
+    selected_city = None
+    # Mostramos un aviso de que el año está fijado a 2024 en la primera columna
+    col1.info("📅 Periodo de análisis fijado: Año 2024")
+    # Habilitamos las coordenadas
+    lat = col2.number_input("Latitud", value=-14.0837, format="%.4f")
+    lon = col3.number_input("Longitud", value=-75.7460, format="%.4f")
 
-usar_local = selected_city != OPCION_MANUAL
-
-lat = col2.number_input("Latitud", value=-12.022, format="%.4f", disabled=usar_local)
-lon = col3.number_input("Longitud", value=-77.114, format="%.4f", disabled=usar_local)
-
-# Menú actualizado iniciando desde el 2001 para una carga limpia
-periodo_opciones = [
-    "2001-2024 (24 Años - Estándar Histórico ASHRAE)",
-    "2010-2024 (15 Años - Ciclo Corto)", 
-    "2015-2024 (10 Años)", 
-    "2020-2024 (5 Años)",
-    "2024 (1 Año de prueba)"
-]
-periodo_str = col3.selectbox("Periodo Satelital NASA:", periodo_opciones, disabled=usar_local)
+st.markdown("<br>", unsafe_allow_html=True) # Espaciado
 
 if st.button("Generar Reporte Profesional"):
-    msg_spinner = "Procesando matriz meteorológica satelital de 24 años (~40 segundos)..." if "24 Años" in periodo_str else "Procesando matriz meteorológica..."
+    msg_spinner = "Leyendo archivo EPW local..." if usar_local else "Procesando datos satelitales NASA (Año 2024)..."
     
     with st.spinner(msg_spinner):
         fuente = ""
@@ -154,58 +165,41 @@ if st.button("Generar Reporte Profesional"):
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
             start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL NASA) - AJUSTADO AL INICIO EN 2001
+        # B) LÓGICA MANUAL (SATELITAL NASA) - FIJADA ESTRICTAMENTE A 2024
         else:
             city_display = get_location_name(lat, lon).upper()
             wmo_display = "SATELITAL"
             
-            if "24 Años" in periodo_str: start_year, end_year = 2001, 2024
-            elif "15 Años" in periodo_str: start_year, end_year = 2010, 2024
-            elif "10 Años" in periodo_str: start_year, end_year = 2015, 2024
-            elif "5 Años" in periodo_str: start_year, end_year = 2020, 2024
-            else: start_year, end_year = 2024, 2024
-                
-            dfs = []
-            successful_years = []
+            # Variables fijadas al año 2024
+            start_year, end_year = 2024, 2024
             
-            for y in range(start_year, end_year + 1):
-                url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={y}0101&end={y}1231&format=JSON"
-                
-                try:
-                    res = requests.get(url, timeout=20).json()
-                    
-                    if 'properties' not in res or 'parameter' not in res['properties']:
-                        st.warning(f"Aviso: La NASA no devolvió datos válidos para el año {y}. Se omitirá en el cálculo.")
-                        continue
-                    
-                    if alt_display == "0" and 'geometry' in res:
-                        alt_display = str(round(res['geometry']['coordinates'][2], 1))
-                    
-                    db_vals = list(res['properties']['parameter']['T2M'].values())
-                    wb_vals = list(res['properties']['parameter']['T2MWET'].values())
-                    
-                    temp_df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
-                    temp_df['Month'] = pd.date_range(start=f"{y}-01-01", periods=len(temp_df), freq='h').month
-                    dfs.append(temp_df)
-                    successful_years.append(y)
-                    
-                except Exception as e:
-                    st.warning(f"Aviso: Fallo de conexión al procesar el año {y}. Se omitirá en el cálculo.")
-                    continue 
+            url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={start_year}0101&end={end_year}1231&format=JSON"
             
-            if not dfs:
-                st.error("❌ ERROR CRÍTICO: No se pudo descargar ningún dato de la NASA. Revisa las coordenadas o intenta más tarde.")
+            try:
+                res = requests.get(url, timeout=20).json()
+                
+                if 'properties' not in res or 'parameter' not in res['properties']:
+                    st.error(f"❌ ERROR: La NASA no devolvió datos válidos para el año {start_year} en esas coordenadas.")
+                    st.stop()
+                
+                if 'geometry' in res:
+                    alt_display = str(round(res['geometry']['coordinates'][2], 1))
+                
+                db_vals = list(res['properties']['parameter']['T2M'].values())
+                wb_vals = list(res['properties']['parameter']['T2MWET'].values())
+                
+                df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
+                df['Month'] = pd.date_range(start=f"{start_year}-01-01", periods=len(df), freq='h').month
+                
+            except Exception as e:
+                st.error(f"❌ ERROR: Fallo de conexión con la NASA al intentar descargar el año {start_year}.")
                 st.stop()
-                
-            df = pd.concat(dfs, ignore_index=True)
             
-            real_start = min(successful_years)
-            real_end = max(successful_years)
-            period_display = f"{real_start}-{real_end}"
-            start_date_for_range = f"{real_start}-01-01"
+            period_display = "2024"
+            start_date_for_range = "2024-01-01"
             
             horas_totales = len(df)
-            fuente = f"Generado mediante reanálisis de datos satelitales NASA ({real_start}-{real_end}). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
+            fuente = f"Generado mediante reanálisis de datos satelitales NASA (Año 2024). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
 
         # Cálculos Estadísticos Avanzados de Ingeniería ASHRAE
         df['Day'] = pd.date_range(start=start_date_for_range, periods=len(df), freq='h').date
@@ -265,56 +259,4 @@ if st.button("Generar Reporte Profesional"):
             .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
             .meta-table td {{ border: none; text-align: center; padding: 3px; }}
             
-            .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
-            .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
-            .data-table th {{ font-weight: bold; font-size: 9px; }}
-            .azul {{ background-color: #2e75b6; color: white; border: 1px solid #1e5a99; }}
-            .naranja {{ background-color: #e46c0a; color: white; border: 1px solid #b35508; }}
-            .verde {{ background-color: #28a745; color: white; border: 1px solid #1e7e34; }}
-            .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
-            
-            .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
-        </style></head>
-        <body>
-            <div class="location-header">{city_display} (WMO: {wmo_display})</div>
-            
-            <table class="meta-table">
-                <tr>
-                    <td>Lat: <strong>{lat_str}</strong></td>
-                    <td>Lon: <strong>{lon_str}</strong></td>
-                    <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
-                    <td>StdP: <strong>{stdp_display}</strong></td>
-                    <td>Time zone: <strong>-5.00 (W05)</strong></td>
-                    <td>Period: <strong>{period_display}</strong></td>
-                    <td>WBAN: <strong>99999</strong></td>
-                </tr>
-            </table>
-            
-            <table class="data-table">
-                <tr>
-                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
-                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
-                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
-                    <th colspan="2" class="verde">MCDBR</th>
-                </tr>
-                <tr>
-                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
-                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
-                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
-                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
-                </tr>
-                <tr>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
-                    <th class="verde">°C</th><th class="verde">°F</th>
-                </tr>
-                {filas}
-            </table>
-            
-            <div class="footer">{fuente}</div>
-        </body></html>"""
-        
-        pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte maestro generado con éxito!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+            .data-table {{ font-family: 'Helvetica Neue
