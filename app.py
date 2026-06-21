@@ -82,8 +82,7 @@ css_base = """
     body { font-family: 'Times New Roman', Times, serif; margin: 0; padding: 0; background-color: #ffffff; color: #000; }
     table { width: 100% !important; border-collapse: collapse !important; margin-bottom: 6px !important; table-layout: fixed !important; border: 1px solid #000; }
     th, td { border: 1px solid black !important; padding: 1px 2px !important; text-align: center !important; line-height: 1.1 !important; word-wrap: break-word !important; }
-    .header-blue, th.nasa-blue { background-color: #0000cc !important; color: white !important; font-weight: bold; padding: 2px !important; }
-    .divider-blue { background-color: #0000cc !important; height: 3px !important; padding: 0 !important; border: 1px solid #0000cc !important; }
+    .header-blue, th.nasa-blue { background-color: #0000cc !important; color: white !important; font-weight: bold; padding: 2px !important; border: 1px solid #0000cc !important; }
     .gray-header td { font-weight: bold; background-color: #ffffff !important; } 
     .title-bar { text-align: center; font-weight: bold; margin-bottom: 5px; color: #000; }
     a { display: none !important; }
@@ -110,7 +109,6 @@ if st.button("Generar Reporte Maestro"):
                     html_limpio = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_limpio)
                     html_limpio = html_limpio.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    # Fix: Uso de .format() para evitar errores de parseo por truncamiento en Streamlit/Copy-paste
                     html_preview_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_preview))
                     html_pdf_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
@@ -181,19 +179,19 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("CDH23.3", 1, 2, False)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
             m_rows += build_row([("CDH26.7", 1, 2, False)], lambda x: (x['DB'] - 26.7).clip(lower=0).sum())
             
-            # 2. Wind
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            # 2. Wind (Franja azul del mismo tamaño que la cabecera principal)
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Wind (m/s)", 1, 1, True), ("WSAvg", 1, 2, False)], lambda x: x['WS'].mean())
             
             # 3. Precipitation
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Precipitation<br>(mm)", 4, 1, True), ("PrecAvg", 1, 2, False)], lambda x: x['Precip'].sum())
             m_rows += build_row([("PrecMax", 1, 2, False)], lambda x: x['Precip'].sum()) 
             m_rows += build_row([("PrecMin", 1, 2, False)], lambda x: x['Precip'].sum()) 
             m_rows += build_row([("PrecStd", 1, 2, False)], lambda x: 0.0)
             
             # 4. Monthly Design DB & MCWB
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Monthly Design<br>Dry Bulb and Mean<br>Coincident Wet<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.996))
             m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.996)))
             m_rows += build_row([("2%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.980))
@@ -204,7 +202,7 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.900)))
 
             # 5. Monthly Design WB & MCDB
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Monthly Design<br>Wet Bulb and Mean<br>Coincident Dry<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.996))
             m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.996)))
             m_rows += build_row([("2%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.980))
@@ -215,7 +213,7 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.900)))
 
             # 6. Mean Daily Temperature Range
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Mean Daily<br>Temperature Range<br>(°C)", 5, 1, True), ("MDBR", 1, 2, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
             m_rows += build_row([("5% DB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).quantile(0.95))
             m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).mean())
@@ -223,11 +221,11 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).quantile(0.95))
 
             # 7. Solar Radiation
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Clear Sky Solar<br>Irradiance (W m-2)", 2, 1, True), ("Ebn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DirNorm'].mean() if not x.empty else 0)
             m_rows += build_row([("Edn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DifHorz'].mean() if not x.empty else 0)
             
-            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("All-Sky Solar<br>Radiation (W m-2)", 2, 1, True), ("RadAvg", 1, 2, False)], lambda x: (x['GloHorz'].mean() * 24 / 1000) if not x.empty else 0)
             m_rows += build_row([("RadStd", 1, 2, False)], lambda x: (x['GloHorz'].std() * 24 / 1000) if not x.empty else 0)
 
@@ -335,7 +333,6 @@ if st.button("Generar Reporte Maestro"):
             </body></html>
             """
             
-            # Reemplazo final seguro usando .format()
             html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
             html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
             
