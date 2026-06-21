@@ -160,3 +160,45 @@ if st.button("Generar Reporte Profesional"):
             @page {{ size: A4 landscape; margin: 1cm; }}
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10px; color: #333; }}
             h2 {{ color: #1e5a99; border-bottom: 2px solid #1e5a99; padding-bottom: 5px; margin-bottom: 10px; font-size: 18px; }}
+            p {{ margin: 4px 0; font-size: 11px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); }}
+            th, td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
+            th {{ font-weight: bold; font-size: 9px; }}
+            .azul {{ background-color: #2e75b6; color: white; border: 1px solid #1e5a99; }}
+            .naranja {{ background-color: #e46c0a; color: white; border: 1px solid #b35508; }}
+            .verde {{ background-color: #28a745; color: white; border: 1px solid #1e7e34; }}
+            .footer {{ font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
+            tr:nth-child(even) td {{ background-color: #fdfdfd; }}
+        </style></head>
+        <body>
+            <h2>CONDICIONES CLIMÁTICAS MENSUALES DE DISEÑO</h2>
+            <p><strong>Ubicación:</strong> {city_display} | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon} | <strong>Elevación:</strong> {alt_display} m</p>
+            
+            <table>
+                <tr>
+                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
+                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
+                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
+                    <th colspan="2" class="verde">MCDBR</th>
+                </tr>
+                <tr>
+                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
+                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
+                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
+                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
+                </tr>
+                <tr>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
+                    <th class="verde">°C</th><th class="verde">°F</th>
+                </tr>
+                {filas}
+            </table>
+            
+            <div class="footer">{fuente}</div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte generado con estándar profesional!")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
