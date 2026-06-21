@@ -7,40 +7,65 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
 st.title("🌍 Generador de Reportes Climáticos ASHRAE")
 
-# 1. Función para limpiar el nombre y agregar "Perú - "
+# 1. Función para decodificar archivos locales: PAÍS - DEPARTAMENTO - CIUDAD
 def clean_city_name(filename):
+    dept_map = {
+        "AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa",
+        "AYA": "Ayacucho", "CAJ": "Cajamarca", "CUS": "Cusco", "HUC": "Huánuco",
+        "HUV": "Huancavelica", "ICA": "Ica", "JUN": "Junín", "LAL": "La Libertad",
+        "LAM": "Lambayeque", "LIM": "Lima", "LOR": "Loreto", "MDD": "Madre de Dios",
+        "MOQ": "Moquegua", "PAS": "Pasco", "PIU": "Piura", "PUN": "Puno",
+        "SAM": "San Martín", "TAC": "Tacna", "TUM": "Tumbes", "UCA": "Ucayali"
+    }
     try:
-        # Ejemplo: "PER_AMA_Chachapoyas.AP.844440_TMYx.2011-2025.epw"
         parts = filename.split('_')
         if len(parts) >= 3:
             pais = "Perú" if parts[0] == "PER" else parts[0]
+            departamento = dept_map.get(parts[1], parts[1])
             ciudad = parts[2].split('.')[0].replace("-", " ")
-            return f"{pais} - {ciudad}"
+            return f"{pais} - {departamento} - {ciudad}"
         return filename.replace(".epw", "")
     except:
         return filename
 
-# 2. Función para listar archivos locales
+# 2. Función para obtener el nombre de la ciudad real mediante coordenadas (Geocodificación Inversa)
+def get_location_name(lat, lon):
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        headers = {'User-Agent': 'GeneradorASHRAE_Peru_v2'}
+        response = requests.get(url, headers=headers, timeout=5).json()
+        address = response.get('address', {})
+        
+        pais = address.get('country', 'Perú')
+        # Intentar obtener departamento o región
+        departamento = address.get('state', address.get('region', ''))
+        # Intentar obtener la ciudad, pueblo o villa más cercana
+        ciudad = address.get('city', address.get('town', address.get('village', address.get('suburb', 'Ubicación Desconocida'))))
+        
+        if departamento:
+            return f"{pais} - {departamento} - {ciudad}"
+        return f"{pais} - {ciudad}"
+    except:
+        return f"Coordenadas [Lat: {lat}, Lon: {lon}]"
+
+# 3. Función para listar archivos locales
 def get_epw_mapping():
     if not os.path.exists("data"): return {}
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
-    return {clean_city_name(f): f for f in files}
+    return {clean_city_name(f): f for f in sorted(files)}
 
 # --- INTERFAZ ---
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
-# Opción por defecto actualizada
-OPCION_NASA = "-- Usar data NASA --"
-selected_city = col1.selectbox("Seleccionar ciudad:", [OPCION_NASA] + list(file_map.keys()))
+OPCION_MANUAL = "-- Ingresar Coordenadas Manualmente --"
+selected_city = col1.selectbox("Seleccionar ciudad:", [OPCION_MANUAL] + list(file_map.keys()))
 
-# Variable de control: True si seleccionó una ciudad del EPW, False si usa NASA
-usar_local = selected_city != OPCION_NASA
+usar_local = selected_city != OPCION_MANUAL
 
-# Los inputs ahora se desactivan (disabled) si se selecciona una ciudad local
-lat = col2.number_input("Latitud (Solo para NASA)", value=-9.5822, format="%.4f", disabled=usar_local)
-lon = col3.number_input("Longitud (Solo para NASA)", value=-77.0234, format="%.4f", disabled=usar_local)
-year = col3.selectbox("Año de análisis (Solo para NASA):", list(range(2024, 2014, -1)), disabled=usar_local)
+lat = col2.number_input("Latitud", value=-9.5822, format="%.4f", disabled=usar_local)
+lon = col3.number_input("Longitud", value=-77.0234, format="%.4f", disabled=usar_local)
+year = col3.selectbox("Año de análisis (Satelital):", list(range(2024, 2014, -1)), disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
     with st.spinner("Procesando datos y diseñando PDF Premium..."):
@@ -54,7 +79,6 @@ if st.button("Generar Reporte Profesional"):
             filename = file_map[selected_city]
             city_display = selected_city
             
-            # Lectura inteligente: Extraer Lat/Lon/Alt exactas del archivo EPW
             try:
                 with open(f"data/{filename}", 'r', encoding='utf-8') as f:
                     first_line = f.readline()
@@ -62,7 +86,6 @@ if st.button("Generar Reporte Profesional"):
                     lat_real = float(header_data[6])
                     lon_real = float(header_data[7])
                     alt_display = header_data[9].strip()
-                    # Actualizamos visualmente para el PDF
                     lat = lat_real
                     lon = lon_real
             except:
@@ -71,16 +94,18 @@ if st.button("Generar Reporte Profesional"):
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,6,8], names=['Month', 'Day', 'DB', 'WB'])
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
 
-        # B) LÓGICA NASA (Online)
+        # B) LÓGICA COORDENADAS (NASA + GEOCODIFICACIÓN)
         else:
+            # Obtener el nombre de la ciudad real a partir de las coordenadas ingresadas
+            city_display = get_location_name(lat, lon)
+            
             url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={year}0101&end={year}1231&format=JSON"
             res = requests.get(url).json()
-            city_display = f"Coordenadas Satelitales"
             alt_display = str(round(res['geometry']['coordinates'][2], 1))
             df = pd.DataFrame({'DB': list(res['properties']['parameter']['T2M'].values()), 
                                'WB': list(res['properties']['parameter']['T2MWET'].values())})
             df['Month'] = pd.date_range(start=f"{year}-01-01", periods=len(df), freq='h').month
-            fuente = f"Generado mediante reanálisis de datos NASA POWER (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa de la NASA."
+            fuente = f"Generado mediante reanálisis de datos satelitales (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa satelital."
 
         # Cálculos de Ingeniería
         df['Day'] = pd.date_range(start=f"2024-01-01", periods=len(df), freq='h').date
@@ -140,7 +165,7 @@ if st.button("Generar Reporte Profesional"):
             
             <table>
                 <tr>
-                    <th rowspan="2" class="azul" style="vertical-align: middle;">Mes</th>
+                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
                     <th colspan="8" class="azul">Refrigeración (Cooling)</th>
                     <th colspan="4" class="naranja">Calefacción (Heating)</th>
                     <th colspan="2" class="verde">MCDBR</th>
@@ -152,7 +177,6 @@ if st.button("Generar Reporte Profesional"):
                     <th colspan="2" class="verde">Δ°C | Δ°F</th>
                 </tr>
                 <tr>
-                    <td style="background-color: #f8f9fa; border-bottom: 2px solid #c2c2c2;"></td>
                     <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
                     <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
                     <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
@@ -166,4 +190,4 @@ if st.button("Generar Reporte Profesional"):
         
         pdf_file = HTML(string=html_content).write_pdf()
         st.success("¡Reporte generado con estándar profesional!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_{city_display}.pdf", mime="application/pdf")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
