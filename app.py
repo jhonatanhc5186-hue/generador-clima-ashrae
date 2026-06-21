@@ -215,4 +215,158 @@ if st.button("Generar Reporte NASA (A4 Vertical)"):
         matrix_html += build_row(None, 0, "CDD10.0", "", f_cdd10)
         matrix_html += build_row(None, 0, "CDD18.3", "", f_cdd18)
         matrix_html += build_row(None, 0, "CDH23.3", "", f_cdh23)
-        matrix_html +=
+        matrix_html += build_row(None, 0, "CDH26.7", "", f_cdh26)
+        
+        matrix_html += build_row("Wind (m/s)", 1, "WSAvg", "", f_wsavg)
+        
+        matrix_html += build_row("Precipitation<br>(mm)", 4, "PrecAvg", "", f_precavg)
+        matrix_html += build_row(None, 0, "PrecMax", "", f_precmax)
+        matrix_html += build_row(None, 0, "PrecMin", "", f_precmin)
+        matrix_html += build_row(None, 0, "PrecStd", "", lambda x: f_precstd(x) if pd.notna(f_precstd(x)) else 0)
+
+        matrix_html += build_row("Monthly Design<br>Dry Bulb and<br>MCWB<br>(°C)", 8, "0.4%", "DB", f_db04)
+        matrix_html += build_row(None, 0, "", "MCWB", f_mcwb04)
+        matrix_html += build_row(None, 0, "2%", "DB", f_db20)
+        matrix_html += build_row(None, 0, "", "MCWB", f_mcwb20)
+        matrix_html += build_row(None, 0, "5%", "DB", f_db50)
+        matrix_html += build_row(None, 0, "", "MCWB", f_mcwb50)
+        matrix_html += build_row(None, 0, "10%", "DB", f_db10)
+        matrix_html += build_row(None, 0, "", "MCWB", f_mcwb10)
+
+        matrix_html += build_row("Monthly Design<br>Wet Bulb and<br>MCDB<br>(°C)", 8, "0.4%", "WB", f_wb04)
+        matrix_html += build_row(None, 0, "", "MCDB", f_mcdb04)
+        matrix_html += build_row(None, 0, "2%", "WB", f_wb20)
+        matrix_html += build_row(None, 0, "", "MCDB", f_mcdb20)
+        matrix_html += build_row(None, 0, "5%", "WB", f_wb50)
+        matrix_html += build_row(None, 0, "", "MCDB", f_mcdb50)
+        matrix_html += build_row(None, 0, "10%", "WB", f_wb10)
+        matrix_html += build_row(None, 0, "", "MCDB", f_mcdb10)
+
+        matrix_html += build_row("Mean Daily<br>Temp Range", 1, "MDBR", "", f_mdbr)
+        
+        matrix_html += build_row("Clear Sky Solar<br>(kWh m-2)", 1, "RadClr", "", f_radclr)
+        matrix_html += build_row("All-Sky Solar<br>(kWh m-2)", 1, "RadAvg", "", f_radavg)
+
+        # --- 8. RENDERIZADO HTML/CSS EXACTO (PORTRAIT A4) ---
+        html_content = f"""
+        <html><head><style>
+            @page {{ size: A4 portrait; margin: 8mm; }}
+            body {{ font-family: 'Times New Roman', serif; font-size: 7px; color: #000; line-height: 1.1; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 5px; border: 1.5px solid #000; table-layout: fixed; }}
+            th, td {{ border: 1px solid #000; padding: 2px; text-align: center; overflow: hidden; }}
+            .nasa-blue {{ background-color: #0000cc; color: #fff; font-weight: bold; font-size: 8px; padding: 3px; }}
+            .gray-header {{ background-color: #f2f2f2; font-weight: bold; }}
+            .title-bar {{ font-size: 11px; font-weight: bold; text-align: center; margin-bottom: 4px; }}
+            .footer {{ font-size: 7px; font-style: italic; margin-top: 10px; color: #333; }}
+        </style></head>
+        <body>
+            <div class="title-bar">POWER Climatic Design Conditions (GMAO MERRA-2 and CERES SYN1deg)</div>
+            
+            <table style="border:none; border-top:1.5px solid #000; border-bottom:1.5px solid #000; margin-bottom:5px;">
+                <tr>
+                    <td style="border:none; text-align:left;"><b>Latitude:</b> {format_coord(lat, True)}</td>
+                    <td style="border:none; text-align:left;"><b>Longitude:</b> {format_coord(lon, False)}</td>
+                    <td style="border:none; text-align:left;"><b>Elevation:</b> {alt_display}</td>
+                    <td style="border:none; text-align:left;"><b>StdPres:</b> {stdp_display}</td>
+                    <td style="border:none; text-align:left;"><b>Time Zone:</b> -5.0</td>
+                    <td style="border:none; text-align:left;"><b>Time Period:</b> {period_display}</td>
+                </tr>
+            </table>
+
+            <table>
+                <tr><th colspan="12" class="nasa-blue">Annual Heating and Humidification Design Conditions</th></tr>
+                <tr class="gray-header">
+                    <td rowspan="2">Coldest<br>Month</td>
+                    <td colspan="2">Heating DB (°C)</td>
+                    <td colspan="6">Humidification DP / HR / MCDB</td>
+                    <td colspan="3">Coldest month WS / MCDB</td>
+                </tr>
+                <tr class="gray-header">
+                    <td>99.6%</td><td>99%</td>
+                    <td>99.6% DP</td><td>HR</td><td>MCDB</td>
+                    <td>99% DP</td><td>HR</td><td>MCDB</td>
+                    <td>0.4% WS</td><td>1% WS</td><td>MCDB</td>
+                </tr>
+                <tr>
+                    <td style="font-weight:bold;">{coldest_month}</td>
+                    <td>{db_min_ann:.1f}</td><td>{df['DB'].quantile(0.010):.1f}</td>
+                    <td>{df['DP'].quantile(0.004):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.004)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.004)):.1f}</td>
+                    <td>{df['DP'].quantile(0.010):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.010)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.010)):.1f}</td>
+                    <td>{df['WS'].quantile(0.996):.1f}</td><td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
+                </tr>
+            </table>
+
+            <table>
+                <tr><th colspan="16" class="nasa-blue">Annual Cooling, Dehumidification, and Enthalpy Design Conditions</th></tr>
+                <tr class="gray-header">
+                    <td rowspan="2">Hottest<br>Month</td>
+                    <td rowspan="2">DB<br>Range</td>
+                    <td colspan="4">Cooling DB / MCWB (°C)</td>
+                    <td colspan="4">Evaporation WB / MCDB (°C)</td>
+                    <td colspan="3">Dehumid. DP/HR/MCDB</td>
+                    <td colspan="3">Enthalpy / MCDB</td>
+                </tr>
+                <tr class="gray-header">
+                    <td colspan="2">0.4%</td><td colspan="2">2%</td>
+                    <td colspan="2">0.4%</td><td colspan="2">2%</td>
+                    <td>0.4% DP</td><td>HR</td><td>MCDB</td>
+                    <td>0.4% En</td><td>1% En</td><td>MCDB</td>
+                </tr>
+                <tr>
+                    <td style="font-weight:bold;">{hottest_month}</td>
+                    <td>{df[df['Month'] == hottest_month]['DB'].max() - df[df['Month'] == hottest_month]['DB'].min():.1f}</td>
+                    <td>{db_max_ann:.1f}</td><td>{mc(df, 'DB', 'WB', db_max_ann):.1f}</td>
+                    <td>{df['DB'].quantile(0.980):.1f}</td><td>{mc(df, 'DB', 'WB', df['DB'].quantile(0.980)):.1f}</td>
+                    
+                    <td>{wb_max_ann:.1f}</td><td>{mc(df, 'WB', 'DB', wb_max_ann):.1f}</td>
+                    <td>{df['WB'].quantile(0.980):.1f}</td><td>{mc(df, 'WB', 'DB', df['WB'].quantile(0.980)):.1f}</td>
+                    
+                    <td>{dp_max_ann:.1f}</td><td>{mc(df, 'DP', 'HR', dp_max_ann):.1f}</td><td>{mc(df, 'DP', 'DB', dp_max_ann):.1f}</td>
+                    
+                    <td>{df['Enth'].quantile(0.996):.1f}</td><td>{df['Enth'].quantile(0.990):.1f}</td><td>{mc(df, 'Enth', 'DB', df['Enth'].quantile(0.996)):.1f}</td>
+                </tr>
+            </table>
+
+            <table>
+                <tr><th colspan="12" class="nasa-blue">Extreme Annual Design Conditions</th></tr>
+                <tr class="gray-header">
+                    <td colspan="3">Extreme Annual WS (m/s)</td>
+                    <td colspan="5">Extreme Annual Temperature (°C)</td>
+                    <td colspan="4">n-Year Return Period Values of Extreme Temp (°C)</td>
+                </tr>
+                <tr class="gray-header">
+                    <td>1%</td><td>2.5%</td><td>5%</td>
+                    <td>DB Mean Min/Max</td><td>Std Dev</td><td>WB Mean Min/Max</td><td>Std Dev</td><td></td>
+                    <td>n=5 years</td><td>n=10 years</td><td>n=20 years</td><td>n=50 years</td>
+                </tr>
+                <tr>
+                    <td rowspan="2">{df['WS'].quantile(0.990):.1f}</td><td rowspan="2">{df['WS'].quantile(0.975):.1f}</td><td rowspan="2">{df['WS'].quantile(0.950):.1f}</td>
+                    <td>DB</td><td>{ann_min_db.mean():.1f} / {ann_max_db.mean():.1f}</td><td>{ann_min_db.std():.1f} / {ann_max_db.std():.1f}</td><td>WB</td><td>{ann_min_wb.mean():.1f} / {ann_max_wb.mean():.1f}</td>
+                    <td>Min/Max</td>
+                    <td>{rp(ann_min_db, 5, False):.1f} / {rp(ann_max_db, 5):.1f}</td>
+                    <td>{rp(ann_min_db, 10, False):.1f} / {rp(ann_max_db, 10):.1f}</td>
+                    <td>{rp(ann_min_db, 20, False):.1f} / {rp(ann_max_db, 20):.1f}</td>
+                    <td>{rp(ann_min_db, 50, False):.1f} / {rp(ann_max_db, 50):.1f}</td>
+                </tr>
+            </table>
+
+            <table>
+                <tr><th colspan="16" class="nasa-blue">Monthly Climatic Design Conditions</th></tr>
+                <tr class="gray-header">
+                    <td colspan="3">Parameters</td>
+                    <td>Annual</td>
+                    <td>Jan</td><td>Feb</td><td>Mar</td><td>Apr</td><td>May</td><td>Jun</td>
+                    <td>Jul</td><td>Aug</td><td>Sep</td><td>Oct</td><td>Nov</td><td>Dec</td>
+                </tr>
+                {matrix_html}
+            </table>
+            
+            <div class="footer">
+                {fuente} | La tabla mensual se renderizó transpuesta (columnas = meses) y ajustada milimétricamente en CSS (font-size: 7px, table-layout: fixed) para garantizar 
+                el encaje perfecto en formato Vertical A4, replicando estrictamente el layout de la NASA POWER.
+            </div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Súper Matriz generada exitosamente en formato Vertical!")
+        st.download_button("📥 Descargar Reporte NASA Vertical", data=pdf_file, file_name=f"NASA_Matrix_Vertical_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
