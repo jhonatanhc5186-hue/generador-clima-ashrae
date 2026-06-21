@@ -8,7 +8,6 @@ import streamlit.components.v1 as components
 from weasyprint import HTML
 
 st.set_page_config(page_title="Generador de Reportes Climáticos", layout="wide")
-st.title("🌍 Generador de Reportes: Condiciones Climáticas de Diseño")
 
 # --- 1. FUNCIONES BASE Y GEOLOCALIZACIÓN ---
 def clean_city_name(filename):
@@ -62,32 +61,57 @@ def mc(sub, base_col, target_col, t):
     h = sub[(sub[base_col] >= t - 0.2) & (sub[base_col] <= t + 0.2)]
     return h[target_col].mean() if not h.empty else sub[target_col].mean()
 
-# --- 3. INTERFAZ ---
-modo = st.radio(
-    "Seleccione la fuente de datos (Formato Oficial NASA POWER):", 
-    ["📍 Búsqueda por Coordenadas (Data Satelital Directa)", "🏢 Estación Local (Clonación desde Archivos EPW)"], 
-    horizontal=True
-)
+# --- 3. INTERFAZ TIPO NASA (CONTROLES IZQUIERDA / MAPA DERECHA) ---
+st.markdown("<h2 style='text-align: center; color: #1f456e;'>NASA POWER | Data Access Viewer</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
-col1, col2, col3 = st.columns(3)
-file_map = get_epw_mapping()
+col_params, col_map = st.columns([1, 2.5], gap="large")
 
-if "Coordenadas" in modo:
-    usar_local = False
-    lat = col2.number_input("Latitud", value=-9.5653, format="%.4f")
-    lon = col3.number_input("Longitud", value=-77.0364, format="%.4f")
-    # AÑADIDO: Slider habilitado hasta 2024. Se recomienda rango amplio para evitar error 422.
-    start_y, end_y = st.slider("Rango de Años (Se recomiendan períodos amplios para precisión matemática de diseño):", 1985, 2024, (2001, 2024))
-else:
-    usar_local = True
-    selected_city = col1.selectbox("Ciudad (Base de datos local):", list(file_map.keys()))
-    lat = col2.number_input("Latitud", value=0.0000, disabled=True)
-    lon = col3.number_input("Longitud", value=0.0000, disabled=True)
+with col_params:
+    st.markdown("### Reports")
+    modo = st.radio(
+        "Source Method:", 
+        ["📍 Satellite Coordinates (NASA)", "🏢 Local Station (EPW Data)"]
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    file_map = get_epw_mapping()
 
-st.markdown("<br>", unsafe_allow_html=True) 
+    if "Satellite" in modo:
+        usar_local = False
+        st.selectbox("Report Name *", ["Climate Design Conditions"], disabled=True)
+        lat = st.number_input("Latitude *", value=-16.3410, format="%.4f")
+        lon = st.number_input("Longitude *", value=-71.5830, format="%.4f")
+        
+        start_y = st.selectbox("Start Date *", list(range(2001, 2020)), index=0)
+        end_y = st.selectbox("End Date *", list(range(2006, 2025)), index=18)
+    else:
+        usar_local = True
+        selected_city = st.selectbox("Report Name (Local EPW) *", list(file_map.keys()))
+        
+        filename = file_map[selected_city]
+        try:
+            with open(f"data/{filename}", 'r', encoding='utf-8') as f:
+                h_data = f.readline().split(',')
+                lat_prev, lon_prev = float(h_data[6]), float(h_data[7])
+        except:
+            lat_prev, lon_prev = 0.0, 0.0
+            
+        lat = st.number_input("Latitude *", value=lat_prev, disabled=True, format="%.4f")
+        lon = st.number_input("Longitude *", value=lon_prev, disabled=True, format="%.4f")
 
-# --- 4. CSS CLÓNICO NASA ---
+    st.markdown("<br>", unsafe_allow_html=True) 
+    btn_generar = st.button("➔ Submit / Generar Reporte", type="primary", use_container_width=True)
+
+with col_map:
+    # MAPA INTERACTIVO
+    st.markdown(f"<div style='text-align:right; font-size:12px; color:gray;'>Latitude: {lat:.4f} | Longitude: {lon:.4f}</div>", unsafe_allow_html=True)
+    map_data = pd.DataFrame({'lat': [lat], 'lon': [lon]})
+    st.map(map_data, zoom=8, use_container_width=True)
+
+st.markdown("---")
+
+# --- 4. CSS CLÓNICO NASA PARA REPORTES ---
 css_base = """
 <style>
     @page { size: A4 portrait; margin: 6mm; }
@@ -101,16 +125,13 @@ css_base = """
     a { display: none !important; }
 </style>
 """
-
 css_pdf = css_base + "<style> body, td { font-size: 6px !important; } .header-blue, th.nasa-blue { font-size: 7px !important; } .title-bar { font-size: 11px !important; } .location-pin { font-size: 12px !important; } </style>"
 css_preview = css_base + "<style> body, td { font-size: 11px !important; } .header-blue, th.nasa-blue { font-size: 13px !important; } .title-bar { font-size: 16px !important; } .location-pin { font-size: 15px !important; } table { margin-bottom: 15px !important; } </style>"
 
-if st.button("Generar Reporte Maestro"):
+# --- 5. LÓGICA DE GENERACIÓN ---
+if btn_generar:
     
     if not usar_local:
-        # =========================================================
-        # MODO COORDENADAS: EXTRACCIÓN HTML DE LA NASA
-        # =========================================================
         with st.spinner("Conectando con servidores satelitales (Esto puede tomar hasta 45 segundos)..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
@@ -131,26 +152,22 @@ if st.button("Generar Reporte Maestro"):
                     html_pdf_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
                     st.success("¡Matriz satelital procesada exitosamente!")
-                    with st.expander("👀 Vista Previa del Reporte Oficial", expanded=True):
+                    with st.expander("👀 Request Results / Vista Previa", expanded=True):
                         components.html(html_preview_final, height=700, scrolling=True)
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
                     st.download_button(label="📥 Descargar Reporte (PDF Vertical)", data=pdf_file, file_name=f"Condiciones_Climaticas_{lat}_{lon}.pdf", mime="application/pdf")
                 
-                # ESCUDO ANTI HTTP 422 MANTENIDO:
                 elif respuesta.status_code == 422:
-                    st.error("❌ ERROR MATEMÁTICO (HTTP 422): El servidor ha rechazado los parámetros. Los Reportes de 'Condiciones de Diseño' requieren obligatoriamente un rango histórico de años más amplio para poder calcular percentiles y pronósticos de retorno a 50 años. Por favor, amplía el deslizador de años.")
+                    st.error("❌ ERROR MATEMÁTICO (HTTP 422): La NASA ha rechazado la solicitud. El rango de años seleccionado es insuficiente para calcular los periodos de retorno a 50 años. Asegúrate de tener al menos 10 años de diferencia (Ej. 2004 - 2024).")
                 else: 
-                    st.error(f"❌ Error de la API NASA: Servidores saturados o inestables (HTTP {respuesta.status_code}).")
+                    st.error(f"❌ Error de la API NASA (HTTP {respuesta.status_code}).")
             
             except Exception as e: 
                 st.error("❌ Error de conexión: Tiempo de espera agotado. Los servidores están ocupados en este momento.")
 
     else:
-        # =========================================================
-        # MODO EPW LOCAL: CLONACIÓN MATEMÁTICA Y VISUAL 1:1
-        # =========================================================
-        with st.spinner("Procesando motor EPW y clonando diseño de matriz..."):
+        with st.spinner("Procesando archivo EPW y generando reporte de diseño..."):
             filename = file_map[selected_city]
             period_display = "TMYx"
             try:
@@ -359,9 +376,9 @@ if st.button("Generar Reporte Maestro"):
             html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
             html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
             
-            st.success("¡Matriz local clonada y renderizada exitosamente!")
+            st.success("¡Reporte procesado exitosamente!")
             
-            with st.expander("👀 Vista Previa del Reporte Clonado (Data EPW)", expanded=True):
+            with st.expander("👀 Request Results / Vista Previa", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
             
             pdf_file = HTML(string=html_pdf_final).write_pdf()
