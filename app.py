@@ -33,7 +33,6 @@ def clean_city_name(filename):
             base_name = " ".join(city_words)
             ciudad = base_name.split('-')[0].strip() 
             
-            # Corrección de errores de origen en nombres de archivos
             correcciones = {
                 "Tacna": "Tacna",
                 "Ilo": "Moquegua"
@@ -74,7 +73,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas (N/S, E/W)
+# 4. Función para formatear coordenadas estilo ASHRAE
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -103,8 +102,9 @@ usar_local = selected_city != OPCION_MANUAL
 lat = col2.number_input("Latitud", value=-12.022, format="%.4f", disabled=usar_local)
 lon = col3.number_input("Longitud", value=-77.114, format="%.4f", disabled=usar_local)
 
+# Menú actualizado iniciando desde el 2001 para una carga limpia
 periodo_opciones = [
-    "2000-2024 (25 Años - Estándar Histórico ASHRAE)",
+    "2001-2024 (24 Años - Estándar Histórico ASHRAE)",
     "2010-2024 (15 Años - Ciclo Corto)", 
     "2015-2024 (10 Años)", 
     "2020-2024 (5 Años)",
@@ -113,7 +113,7 @@ periodo_opciones = [
 periodo_str = col3.selectbox("Periodo Satelital NASA:", periodo_opciones, disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
-    msg_spinner = "Procesando matriz meteorológica satelital de 25 años (~45 segundos)..." if "25 Años" in periodo_str else "Procesando matriz meteorológica..."
+    msg_spinner = "Procesando matriz meteorológica satelital de 24 años (~40 segundos)..." if "24 Años" in periodo_str else "Procesando matriz meteorológica..."
     
     with st.spinner(msg_spinner):
         fuente = ""
@@ -154,34 +154,31 @@ if st.button("Generar Reporte Profesional"):
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
             start_date_for_range = "2024-01-01"
 
-        # B) LÓGICA MANUAL (SATELITAL NASA) - CON ESCUDO ANTI-ERRORES
+        # B) LÓGICA MANUAL (SATELITAL NASA) - AJUSTADO AL INICIO EN 2001
         else:
             city_display = get_location_name(lat, lon).upper()
             wmo_display = "SATELITAL"
             
-            if "25 Años" in periodo_str: start_year, end_year = 2000, 2024
+            if "24 Años" in periodo_str: start_year, end_year = 2001, 2024
             elif "15 Años" in periodo_str: start_year, end_year = 2010, 2024
             elif "10 Años" in periodo_str: start_year, end_year = 2015, 2024
             elif "5 Años" in periodo_str: start_year, end_year = 2020, 2024
             else: start_year, end_year = 2024, 2024
                 
-            period_display = f"{start_year}-{end_year}"
-            start_date_for_range = f"{start_year}-01-01"
-            
             dfs = []
+            successful_years = []
+            
             for y in range(start_year, end_year + 1):
                 url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={y}0101&end={y}1231&format=JSON"
                 
                 try:
                     res = requests.get(url, timeout=20).json()
                     
-                    # Verificación vital: ¿Nos dio la NASA datos o nos dio un error?
                     if 'properties' not in res or 'parameter' not in res['properties']:
-                        st.warning(f"Advertencia: La NASA no devolvió datos válidos para el año {y}.")
+                        st.warning(f"Aviso: La NASA no devolvió datos válidos para el año {y}. Se omitirá en el cálculo.")
                         continue
                     
-                    # Extraer altitud solo si la llave geometry existe
-                    if y == start_year and 'geometry' in res:
+                    if alt_display == "0" and 'geometry' in res:
                         alt_display = str(round(res['geometry']['coordinates'][2], 1))
                     
                     db_vals = list(res['properties']['parameter']['T2M'].values())
@@ -190,19 +187,25 @@ if st.button("Generar Reporte Profesional"):
                     temp_df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
                     temp_df['Month'] = pd.date_range(start=f"{y}-01-01", periods=len(temp_df), freq='h').month
                     dfs.append(temp_df)
+                    successful_years.append(y)
                     
                 except Exception as e:
-                    st.warning(f"Fallo de conexión al procesar el año {y}.")
-                    continue # Salta este año y sigue con el próximo
+                    st.warning(f"Aviso: Fallo de conexión al procesar el año {y}. Se omitirá en el cálculo.")
+                    continue 
             
-            # Si el bucle falló en TODOS los años, detenemos la app aquí
             if not dfs:
                 st.error("❌ ERROR CRÍTICO: No se pudo descargar ningún dato de la NASA. Revisa las coordenadas o intenta más tarde.")
                 st.stop()
                 
             df = pd.concat(dfs, ignore_index=True)
+            
+            real_start = min(successful_years)
+            real_end = max(successful_years)
+            period_display = f"{real_start}-{real_end}"
+            start_date_for_range = f"{real_start}-01-01"
+            
             horas_totales = len(df)
-            fuente = f"Generado mediante reanálisis de datos satelitales NASA ({start_year}-{end_year}). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
+            fuente = f"Generado mediante reanálisis de datos satelitales NASA ({real_start}-{real_end}). Extracción percentilar matemática derivada de {horas_totales:,} horas de data continua."
 
         # Cálculos Estadísticos Avanzados de Ingeniería ASHRAE
         df['Day'] = pd.date_range(start=start_date_for_range, periods=len(df), freq='h').date
