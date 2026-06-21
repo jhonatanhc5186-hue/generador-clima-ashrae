@@ -7,7 +7,7 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
 st.title("🌍 Generador de Reportes Climáticos ASHRAE")
 
-# 1. Función para decodificar archivos locales: PAÍS - DEPARTAMENTO - CIUDAD
+# 1. Función para decodificar archivos locales con corrección geográfica
 def clean_city_name(filename):
     dept_map = {
         "AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa",
@@ -32,6 +32,16 @@ def clean_city_name(filename):
             
             base_name = " ".join(city_words)
             ciudad = base_name.split('-')[0].strip() 
+            
+            # --- CORRECCIÓN DE ERRORES DE ORIGEN (CLIMATE.ONEBUILDING) ---
+            correcciones = {
+                "Tacna": "Tacna",
+                "Ilo": "Moquegua"
+            }
+            if ciudad in correcciones:
+                departamento = correcciones[ciudad]
+            # -------------------------------------------------------------
+
             return f"{pais} - {departamento} - {ciudad}"
             
         return filename.replace(".epw", "")
@@ -267,22 +277,4 @@ if st.button("Generar Reporte Profesional"):
                 </tr>
                 <tr>
                     <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
-                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
-                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
-                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
-                </tr>
-                <tr>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
-                    <th class="verde">°C</th><th class="verde">°F</th>
-                </tr>
-                {filas}
-            </table>
-            
-            <div class="footer">{fuente}</div>
-        </body></html>"""
-        
-        pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte maestro generado!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0
