@@ -259,4 +259,56 @@ if st.button("Generar Reporte Profesional"):
             .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
             .meta-table td {{ border: none; text-align: center; padding: 3px; }}
             
-            .data-table {{ font-family: 'Helvetica Neue
+            .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
+            .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
+            .data-table th {{ font-weight: bold; font-size: 9px; }}
+            .azul {{ background-color: #2e75b6; color: white; border: 1px solid #1e5a99; }}
+            .naranja {{ background-color: #e46c0a; color: white; border: 1px solid #b35508; }}
+            .verde {{ background-color: #28a745; color: white; border: 1px solid #1e7e34; }}
+            .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
+            
+            .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
+        </style></head>
+        <body>
+            <div class="location-header">{city_display} (WMO: {wmo_display})</div>
+            
+            <table class="meta-table">
+                <tr>
+                    <td>Lat: <strong>{lat_str}</strong></td>
+                    <td>Lon: <strong>{lon_str}</strong></td>
+                    <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
+                    <td>StdP: <strong>{stdp_display}</strong></td>
+                    <td>Time zone: <strong>-5.00 (W05)</strong></td>
+                    <td>Period: <strong>{period_display}</strong></td>
+                    <td>WBAN: <strong>99999</strong></td>
+                </tr>
+            </table>
+            
+            <table class="data-table">
+                <tr>
+                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
+                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
+                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
+                    <th colspan="2" class="verde">MCDBR</th>
+                </tr>
+                <tr>
+                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
+                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
+                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
+                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
+                </tr>
+                <tr>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
+                    <th class="verde">°C</th><th class="verde">°F</th>
+                </tr>
+                {filas}
+            </table>
+            
+            <div class="footer">{fuente}</div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte maestro generado con éxito!")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
