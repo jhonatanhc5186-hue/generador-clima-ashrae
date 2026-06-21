@@ -53,8 +53,8 @@ def mc(sub, base_col, target_col, t):
 
 # --- 3. INTERFAZ ---
 modo = st.radio(
-    "Seleccione la fuente de datos:", 
-    ["📍 Búsqueda por Coordenadas (Data Histórica Satelital)", "🏢 Estación Local (Archivos EPW)"], 
+    "Seleccione la fuente de datos (Formato Oficial NASA POWER):", 
+    ["📍 Búsqueda por Coordenadas (Data Satelital Directa)", "🏢 Estación Local (Clonación desde Archivos EPW)"], 
     horizontal=True
 )
 st.markdown("---")
@@ -75,64 +75,60 @@ else:
 
 st.markdown("<br>", unsafe_allow_html=True) 
 
-# --- 4. CSS UNIFICADO ---
-css_pdf = """
+# --- 4. CSS CLÓNICO NASA ---
+css_base = """
 <style>
-    @page { size: A4 portrait; margin: 4mm; }
-    body { font-family: 'Times New Roman', serif; margin: 0; padding: 0; background-color: #ffffff; }
-    table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin-bottom: 3px !important; }
-    th, td { border: 1px solid black !important; padding: 1.5px !important; text-align: center !important; font-size: 5px !important; line-height: 1 !important; word-wrap: break-word !important; }
-    th, .header-blue { background-color: #0000cc !important; color: white !important; font-size: 5.5px !important; font-weight: bold; }
-    .gray-header { background-color: #e6e6e6 !important; font-weight: bold; }
-    .title-bar, h1, h2, h3, h4, div { font-size: 8px !important; text-align: center; font-weight: bold; margin-bottom: 4px; color: #000; }
-    a { display: none !important; } 
-</style>
-"""
-
-css_preview = """
-<style>
-    body { font-family: 'Times New Roman', serif; font-size: 10px; background-color: #f9f9f9; padding: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; table-layout: fixed; background-color: #fff; border: 1px solid #000; }
-    th, td { border: 1px solid #000; padding: 4px; text-align: center; word-wrap: break-word; font-size: 11px; }
-    th, .header-blue { background-color: #0000cc; color: white; font-weight: bold; font-size: 12px; }
-    .gray-header { background-color: #e6e6e6; font-weight: bold; }
-    .title-bar { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 10px; color: #000; }
+    @page { size: A4 portrait; margin: 6mm; }
+    body { font-family: 'Times New Roman', Times, serif; margin: 0; padding: 0; background-color: #ffffff; color: #000; }
+    table { width: 100% !important; border-collapse: collapse !important; margin-bottom: 6px !important; table-layout: fixed !important; border: 1px solid #000; }
+    th, td { border: 1px solid black !important; padding: 1px 2px !important; text-align: center !important; line-height: 1.1 !important; word-wrap: break-word !important; }
+    .header-blue, th.nasa-blue { background-color: #0000cc !important; color: white !important; font-weight: bold; padding: 2px !important; }
+    .divider-blue { background-color: #0000cc !important; height: 3px !important; padding: 0 !important; border: 1px solid #0000cc !important; }
+    .gray-header td { font-weight: bold; background-color: #ffffff !important; } 
+    .title-bar { text-align: center; font-weight: bold; margin-bottom: 5px; color: #000; }
     a { display: none !important; }
 </style>
 """
+
+# Escalado dinámico: Pequeño para PDF (A4 Vertical), Grande para la vista web
+css_pdf = css_base + "<style> body, td { font-size: 6px !important; } .header-blue, th.nasa-blue { font-size: 7px !important; } .title-bar { font-size: 9px !important; } </style>"
+css_preview = css_base + "<style> body, td { font-size: 11px !important; } .header-blue, th.nasa-blue { font-size: 13px !important; } .title-bar { font-size: 16px !important; } table { margin-bottom: 15px !important; } </style>"
 
 if st.button("Generar Reporte Maestro"):
     
     if not usar_local:
         # =========================================================
-        # MODO COORDENADAS: EXTRACCIÓN HTML Y LIMPIEZA
+        # MODO COORDENADAS: EXTRACCIÓN HTML DE LA NASA
         # =========================================================
-        with st.spinner("Procesando matriz de datos climáticos globales..."):
+        with st.spinner("Conectando con servidores satelitales..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=30)
                 if respuesta.status_code == 200:
-                    html_limpio = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', respuesta.text)
+                    html_crudo = respuesta.text
+                    
+                    # Filtro de Privacidad
+                    html_limpio = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_limpio = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_limpio)
                     html_limpio = html_limpio.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
                     html_preview_final = html_limpio.replace("</head>", f"{css_preview}</head>")
                     html_pdf_final = html_limpio.replace("</head>", f"{css_pdf}</head>")
                     
-                    st.success("¡Matriz procesada exitosamente!")
-                    with st.expander("👀 Vista Previa del Reporte de Diseño", expanded=True):
-                        components.html(html_preview_final, height=600, scrolling=True)
+                    st.success("¡Matriz satelital procesada exitosamente!")
+                    with st.expander("👀 Vista Previa del Reporte Oficial", expanded=True):
+                        components.html(html_preview_final, height=700, scrolling=True)
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
                     st.download_button(label="📥 Descargar Reporte (PDF Vertical)", data=pdf_file, file_name=f"Condiciones_Climaticas_{lat}_{lon}.pdf", mime="application/pdf")
-                else: st.error("Error al obtener información satelital.")
+                else: st.error("Error al obtener información satelital de la NASA.")
             except: st.error("Error de conexión durante el procesamiento.")
 
     else:
         # =========================================================
-        # MODO EPW LOCAL: CLONACIÓN MATEMÁTICA Y VISUAL AL 100%
+        # MODO EPW LOCAL: CLONACIÓN MATEMÁTICA Y VISUAL 1:1
         # =========================================================
-        with st.spinner("Procesando archivo EPW local y calculando psicrometría avanzada..."):
+        with st.spinner("Procesando motor EPW y clonando diseño de matriz..."):
             filename = file_map[selected_city]
             period_display = "TMYx"
             try:
@@ -143,35 +139,33 @@ if st.button("Generar Reporte Maestro"):
                     lat_val, lon_val, alt_display = float(h_data[6]), float(h_data[7]), float(h_data[9].strip())
             except: lat_val, lon_val, alt_display = 0, 0, 0
 
-            # Extracción de EPW - Añadiendo Columnas Solares (13=Global, 14=DirectaNormal, 15=DifusaHorizontal)
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,3,6,7,8,9,13,14,15,21,33], names=['Month','Day','Hour','DB','DP','RH','Press','GloHorz','DirNorm','DifHorz','WS','Precip'])
             df['Press_kPa'] = df['Press'] / 1000
             df['Precip'] = pd.to_numeric(df['Precip'], errors='coerce').fillna(0).apply(lambda x: 0 if x > 900 else x)
             df['Year'] = 2024
             
-            # Termodinámica
+            # Termodinámica Psicrométrica
             df['Pv'] = 0.61078 * np.exp(17.27 * df['DP'] / (df['DP'] + 237.3))
             df['HR'] = 1000 * 0.62198 * df['Pv'] / (df['Press_kPa'] - df['Pv']) 
             df['Enth'] = calc_enthalpy(df['DB'], df['HR'])
             df['WB'] = calc_wb(df['DB'], df['RH'])
 
             stdp_display = f"{101.325 * (1 - 2.25577e-5 * alt_display)**5.25588:.2f}"
+            
             db_max_ann, db_min_ann = df['DB'].quantile(0.996), df['DB'].quantile(0.004)
             wb_max_ann, dp_max_ann = df['WB'].quantile(0.996), df['DP'].quantile(0.996)
             enth_max_ann = df['Enth'].quantile(0.996)
             hottest_month = df.groupby('Month')['DB'].mean().idxmax()
             coldest_month = df.groupby('Month')['DB'].mean().idxmin()
 
-            # --- CONSTRUCCIÓN DE LA MATRIZ MENSUAL (CON COLSPAN CORREGIDO) ---
             all_data = [df] + [df[df['Month'] == m] for m in range(1, 13)]
             
-            # Nueva función para forzar los anchos de columna correctos y que no se expulse a Diciembre
-            def build_m_row(cells, func):
+            # Función constructora de filas flexibles con negritas donde corresponda
+            def build_row(headers, func):
                 r = "<tr>"
-                # Añade las celdas de parámetros asegurando que siempre sumen un ancho de 3 columnas
-                for text, rs, cs in cells:
-                    r += f"<td rowspan='{rs}' colspan='{cs}' class='gray-header'>{text}</td>"
-                # Añade los 13 datos (Anual + 12 Meses)
+                for text, rs, cs, is_bold in headers:
+                    weight = "bold" if is_bold else "normal"
+                    r += f"<td rowspan='{rs}' colspan='{cs}' style='font-weight:{weight};'>{text}</td>"
                 vals = [func(d) if not d.empty else 0 for d in all_data]
                 for v in vals:
                     r += f"<td>{v:.1f}</td>" if isinstance(v, float) else f"<td>{v}</td>"
@@ -179,59 +173,67 @@ if st.button("Generar Reporte Maestro"):
                 return r
 
             m_rows = ""
-            # Temperatures, Degree-Days and Degree-Hours
-            m_rows += build_m_row([("Temperatures,<br>Degree-Days and<br>Degree-Hours (°C)", 8, 1), ("DBAvg", 1, 2)], lambda x: x['DB'].mean())
-            m_rows += build_m_row([("DBStd", 1, 2)], lambda x: x['DB'].std())
-            m_rows += build_m_row([("HDD10.0", 1, 2)], lambda x: (10.0 - x['DB']).clip(lower=0).sum() / 24)
-            m_rows += build_m_row([("HDD18.3", 1, 2)], lambda x: (18.3 - x['DB']).clip(lower=0).sum() / 24)
-            m_rows += build_m_row([("CDD10.0", 1, 2)], lambda x: (x['DB'] - 10.0).clip(lower=0).sum() / 24)
-            m_rows += build_m_row([("CDD18.3", 1, 2)], lambda x: (x['DB'] - 18.3).clip(lower=0).sum() / 24)
-            m_rows += build_m_row([("CDH23.3", 1, 2)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
-            m_rows += build_m_row([("CDH26.7", 1, 2)], lambda x: (x['DB'] - 26.7).clip(lower=0).sum())
+            # 1. Temperatures
+            m_rows += build_row([("Temperatures,<br>Degree-Days and<br>Degree-Hours<br>(°C)", 8, 1, True), ("DBAvg", 1, 2, False)], lambda x: x['DB'].mean())
+            m_rows += build_row([("DBStd", 1, 2, False)], lambda x: x['DB'].std())
+            m_rows += build_row([("HDD10.0", 1, 2, False)], lambda x: (10.0 - x['DB']).clip(lower=0).sum() / 24)
+            m_rows += build_m_row([("HDD18.3", 1, 2, False)], lambda x: (18.3 - x['DB']).clip(lower=0).sum() / 24)
+            m_rows += build_row([("CDD10.0", 1, 2, False)], lambda x: (x['DB'] - 10.0).clip(lower=0).sum() / 24)
+            m_rows += build_row([("CDD18.3", 1, 2, False)], lambda x: (x['DB'] - 18.3).clip(lower=0).sum() / 24)
+            m_rows += build_row([("CDH23.3", 1, 2, False)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
+            m_rows += build_row([("CDH26.7", 1, 2, False)], lambda x: (x['DB'] - 26.7).clip(lower=0).sum())
             
-            # Wind
-            m_rows += build_m_row([("Wind (m/s)", 1, 1), ("WSAvg", 1, 2)], lambda x: x['WS'].mean())
+            # 2. Wind
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("Wind (m/s)", 1, 1, True), ("WSAvg", 1, 2, False)], lambda x: x['WS'].mean())
             
-            # Precipitation
-            m_rows += build_m_row([("Precipitation (mm)", 4, 1), ("PrecAvg", 1, 2)], lambda x: x['Precip'].sum())
-            m_rows += build_m_row([("PrecMax", 1, 2)], lambda x: x['Precip'].sum()) 
-            m_rows += build_m_row([("PrecMin", 1, 2)], lambda x: x['Precip'].sum()) 
-            m_rows += build_m_row([("PrecStd", 1, 2)], lambda x: 0.0)
+            # 3. Precipitation
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("Precipitation<br>(mm)", 4, 1, True), ("PrecAvg", 1, 2, False)], lambda x: x['Precip'].sum())
+            m_rows += build_row([("PrecMax", 1, 2, False)], lambda x: x['Precip'].sum()) 
+            m_rows += build_row([("PrecMin", 1, 2, False)], lambda x: x['Precip'].sum()) 
+            m_rows += build_row([("PrecStd", 1, 2, False)], lambda x: 0.0)
             
-            # Monthly Design Dry Bulb and MCWB
-            m_rows += build_m_row([("Monthly Design<br>Dry Bulb and<br>Mean Coincident<br>Wet Bulb<br>Temperatures (°C)", 8, 1), ("0.4%", 2, 1), ("DB", 1, 1)], lambda x: x['DB'].quantile(0.996))
-            m_rows += build_m_row([("MCWB", 1, 1)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.996)))
-            m_rows += build_m_row([("2%", 2, 1), ("DB", 1, 1)], lambda x: x['DB'].quantile(0.980))
-            m_rows += build_m_row([("MCWB", 1, 1)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.980)))
-            m_rows += build_m_row([("5%", 2, 1), ("DB", 1, 1)], lambda x: x['DB'].quantile(0.950))
-            m_rows += build_m_row([("MCWB", 1, 1)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.950)))
-            m_rows += build_m_row([("10%", 2, 1), ("DB", 1, 1)], lambda x: x['DB'].quantile(0.900))
-            m_rows += build_m_row([("MCWB", 1, 1)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.900)))
+            # 4. Monthly Design DB & MCWB
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("Monthly Design<br>Dry Bulb and Mean<br>Coincident Wet<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.996))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.996)))
+            m_rows += build_row([("2%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.980))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.980)))
+            m_rows += build_row([("5%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.950))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.950)))
+            m_rows += build_row([("10%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.900))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.900)))
 
-            # Monthly Design Wet Bulb and MCDB
-            m_rows += build_m_row([("Monthly Design<br>Wet Bulb and<br>Mean Coincident<br>Dry Bulb<br>Temperatures (°C)", 8, 1), ("0.4%", 2, 1), ("WB", 1, 1)], lambda x: x['WB'].quantile(0.996))
-            m_rows += build_m_row([("MCDB", 1, 1)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.996)))
-            m_rows += build_m_row([("2%", 2, 1), ("WB", 1, 1)], lambda x: x['WB'].quantile(0.980))
-            m_rows += build_m_row([("MCDB", 1, 1)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.980)))
-            m_rows += build_m_row([("5%", 2, 1), ("WB", 1, 1)], lambda x: x['WB'].quantile(0.950))
-            m_rows += build_m_row([("MCDB", 1, 1)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.950)))
-            m_rows += build_m_row([("10%", 2, 1), ("WB", 1, 1)], lambda x: x['WB'].quantile(0.900))
-            m_rows += build_m_row([("MCDB", 1, 1)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.900)))
+            # 5. Monthly Design WB & MCDB
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("Monthly Design<br>Wet Bulb and Mean<br>Coincident Dry<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.996))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.996)))
+            m_rows += build_row([("2%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.980))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.980)))
+            m_rows += build_row([("5%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.950))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.950)))
+            m_rows += build_row([("10%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.900))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.900)))
 
-            # Mean Daily Temperature Range
-            m_rows += build_m_row([("Mean Daily<br>Temperature Range<br>(°C)", 5, 1), ("MDBR", 1, 2)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
-            m_rows += build_m_row([("5% DB", 2, 1), ("MCDBR", 1, 1)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).quantile(0.95))
-            m_rows += build_m_row([("MCWBR", 1, 1)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).mean())
-            m_rows += build_m_row([("5% WB", 2, 1), ("MCDBR", 1, 1)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
-            m_rows += build_m_row([("MCWBR", 1, 1)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).quantile(0.95))
+            # 6. Mean Daily Temperature Range
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("Mean Daily<br>Temperature Range<br>(°C)", 5, 1, True), ("MDBR", 1, 2, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
+            m_rows += build_row([("5% DB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).quantile(0.95))
+            m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).mean())
+            m_rows += build_row([("5% WB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
+            m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).quantile(0.95))
 
-            # Solar Radiation (EPW W/m2 a kWh/m2 o promedio directo)
-            m_rows += build_m_row([("Clear Sky Solar<br>Irradiance (W m-2)", 2, 1), ("Ebn,noon", 1, 2)], lambda x: x[x['Hour'].between(11,13)]['DirNorm'].mean() if not x.empty else 0)
-            m_rows += build_m_row([("Edn,noon", 1, 2)], lambda x: x[x['Hour'].between(11,13)]['DifHorz'].mean() if not x.empty else 0)
-            m_rows += build_m_row([("All-Sky Solar<br>Radiation (W m-2)", 2, 1), ("RadAvg", 1, 2)], lambda x: (x['GloHorz'].mean() * 24 / 1000) if not x.empty else 0)
-            m_rows += build_m_row([("RadStd", 1, 2)], lambda x: (x['GloHorz'].std() * 24 / 1000) if not x.empty else 0)
+            # 7. Solar Radiation
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("Clear Sky Solar<br>Irradiance (W m-2)", 2, 1, True), ("Ebn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DirNorm'].mean() if not x.empty else 0)
+            m_rows += build_row([("Edn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DifHorz'].mean() if not x.empty else 0)
+            
+            m_rows += "<tr><td colspan='16' class='divider-blue'></td></tr>"
+            m_rows += build_row([("All-Sky Solar<br>Radiation (W m-2)", 2, 1, True), ("RadAvg", 1, 2, False)], lambda x: (x['GloHorz'].mean() * 24 / 1000) if not x.empty else 0)
+            m_rows += build_row([("RadStd", 1, 2, False)], lambda x: (x['GloHorz'].std() * 24 / 1000) if not x.empty else 0)
 
-            # --- ENSAMBLADO HTML (REPLICA EXACTA) ---
+            # --- ENSAMBLADO HTML FINAL EPW ---
             html_base = f"""
             <html><head></head>
             <body>
@@ -250,19 +252,19 @@ if st.button("Generar Reporte Maestro"):
                 </table>
 
                 <table>
-                    <tr><th colspan="14" class="header-blue">Annual Heating and Humidification Design Conditions</th></tr>
+                    <tr><th colspan="15" class="header-blue">Annual Heating and Humidification Design Conditions</th></tr>
                     <tr class="gray-header">
-                        <td rowspan="2">Coldest Month</td>
+                        <td rowspan="2">Coldest<br>Month</td>
                         <td colspan="2">Heating DB (°C)</td>
-                        <td colspan="6">Humidification DP / HR / MCDB</td>
-                        <td colspan="3">Coldest month WS / MCDB</td>
-                        <td colspan="2">MCWS/PCWD to 99.6% DB</td>
+                        <td colspan="6">Humidification DP / MCDB and HR (°C)</td>
+                        <td colspan="4">Coldest month WS / MCDB (°C)</td>
+                        <td colspan="2">MCWS/PCWD to<br>99.6% DB (°C)</td>
                     </tr>
                     <tr class="gray-header">
                         <td>99.6%</td><td>99%</td>
                         <td>99.6% DP</td><td>HR</td><td>MCDB</td>
                         <td>99% DP</td><td>HR</td><td>MCDB</td>
-                        <td>0.4% WS</td><td>1% WS</td><td>MCDB</td>
+                        <td>0.4% WS</td><td>MCDB</td><td>1% WS</td><td>MCDB</td>
                         <td>MCWS</td><td>PCWD</td>
                     </tr>
                     <tr>
@@ -270,7 +272,8 @@ if st.button("Generar Reporte Maestro"):
                         <td>{db_min_ann:.1f}</td><td>{df['DB'].quantile(0.010):.1f}</td>
                         <td>{df['DP'].quantile(0.004):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.004)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.004)):.1f}</td>
                         <td>{df['DP'].quantile(0.010):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.010)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.010)):.1f}</td>
-                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
+                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
+                        <td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.990)):.1f}</td>
                         <td>{mc(df, 'DB', 'WS', db_min_ann):.1f}</td><td>N/A</td>
                     </tr>
                 </table>
@@ -278,18 +281,18 @@ if st.button("Generar Reporte Maestro"):
                 <table>
                     <tr><th colspan="17" class="header-blue">Annual Cooling, Dehumidification, and Enthalpy Design Conditions</th></tr>
                     <tr class="gray-header">
-                        <td rowspan="2">Hottest Month</td><td rowspan="2">DB Range</td>
+                        <td rowspan="2">Hottest<br>Month</td><td rowspan="2">Hottest<br>Month<br>DB Range</td>
                         <td colspan="4">Cooling DB / MCWB (°C)</td>
                         <td colspan="4">Evaporation WB / MCDB (°C)</td>
-                        <td colspan="3">Dehumid. DP/HR/MCDB</td>
-                        <td colspan="3">Enthalpy / MCDB</td>
-                        <td rowspan="2">Ext Max WB</td>
+                        <td colspan="3">Dehumid. DP/MCDB and HR (°C)</td>
+                        <td colspan="3">Enthalpy / MCDB (°C)</td>
+                        <td rowspan="2">Ext.<br>Max WB<br>(°C)</td>
                     </tr>
                     <tr class="gray-header">
                         <td colspan="2">0.4%</td><td colspan="2">2%</td>
                         <td colspan="2">0.4%</td><td colspan="2">2%</td>
                         <td>0.4% DP</td><td>HR</td><td>MCDB</td>
-                        <td>0.4% En</td><td>1% En</td><td>MCDB</td>
+                        <td>0.4% Enth</td><td>1% Enth</td><td>MCDB</td>
                     </tr>
                     <tr>
                         <td style="font-weight:bold;">{hottest_month}</td>
@@ -307,18 +310,18 @@ if st.button("Generar Reporte Maestro"):
                 <table>
                     <tr><th colspan="12" class="header-blue">Extreme Annual Design Conditions</th></tr>
                     <tr class="gray-header">
-                        <td colspan="3">Extreme Annual WS (m/s)</td><td colspan="4">Extreme Annual Temp (°C)</td>
-                        <td colspan="4">n-Year Return Period Values of Extreme Temp</td>
+                        <td colspan="3">Extreme Annual WS (m/s)</td><td colspan="4">Extreme Annual Temperature (°C)</td>
+                        <td colspan="4">n-Year Return Period Values of Extreme Temperature (°C)</td>
                     </tr>
                     <tr class="gray-header">
                         <td>1%</td><td>2.5%</td><td>5%</td>
-                        <td>DB Mean Min/Max</td><td>Std Dev</td><td>WB Mean Min/Max</td><td>Std Dev</td>
-                        <td>n=5</td><td>n=10</td><td>n=20</td><td>n=50</td>
+                        <td>DB Mean Min/Max</td><td>Standard deviation</td><td>WB Mean Min/Max</td><td>Standard deviation</td>
+                        <td>n=5 years</td><td>n=10 years</td><td>n=20 years</td><td>n=50 years</td>
                     </tr>
                     <tr>
                         <td>{df['WS'].quantile(0.990):.1f}</td><td>{df['WS'].quantile(0.975):.1f}</td><td>{df['WS'].quantile(0.950):.1f}</td>
-                        <td>{df['DB'].min():.1f} / {df['DB'].max():.1f}</td><td>0.0</td>
-                        <td>{df['WB'].min():.1f} / {df['WB'].max():.1f}</td><td>0.0</td>
+                        <td>{df['DB'].min():.1f} / {df['DB'].max():.1f}</td><td>{df['DB'].std():.1f}</td>
+                        <td>{df['WB'].min():.1f} / {df['WB'].max():.1f}</td><td>{df['WB'].std():.1f}</td>
                         <td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td>
                     </tr>
                 </table>
@@ -338,9 +341,9 @@ if st.button("Generar Reporte Maestro"):
             html_preview_final = html_base.replace("</head>", f"{css_preview}</head>")
             html_pdf_final = html_base.replace("</head>", f"{css_pdf}</head>")
             
-            st.success("¡Matriz local procesada exitosamente!")
+            st.success("¡Matriz local clonada y renderizada exitosamente!")
             
-            with st.expander("👀 Vista Previa del Reporte de Diseño (Data EPW)", expanded=True):
+            with st.expander("👀 Vista Previa del Reporte Clonado (Data EPW)", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
             
             pdf_file = HTML(string=html_pdf_final).write_pdf()
