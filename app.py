@@ -41,7 +41,6 @@ def format_coord(val, is_lat):
     except: return str(val)
 
 def get_location_name(lat, lon):
-    """Obtiene el nombre de la ciudad y país basado en coordenadas reales"""
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
         res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=5).json()
@@ -78,7 +77,8 @@ if "Coordenadas" in modo:
     usar_local = False
     lat = col2.number_input("Latitud", value=-9.5653, format="%.4f")
     lon = col3.number_input("Longitud", value=-77.0364, format="%.4f")
-    start_y, end_y = st.slider("Rango de Años:", 1990, 2024, (2001, 2024))
+    # AÑADIDO: Slider habilitado hasta 2024. Se recomienda rango amplio para evitar error 422.
+    start_y, end_y = st.slider("Rango de Años (Se recomiendan períodos amplios para precisión matemática de diseño):", 1985, 2024, (2001, 2024))
 else:
     usar_local = True
     selected_city = col1.selectbox("Ciudad (Base de datos local):", list(file_map.keys()))
@@ -114,22 +114,17 @@ if st.button("Generar Reporte Maestro"):
         with st.spinner("Conectando con servidores satelitales (Esto puede tomar hasta 45 segundos)..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
-                # Se aumenta el timeout a 45s por saturación de servidores de NASA
                 respuesta = requests.get(api_url, timeout=45)
                 
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
-                    # Filtro de Privacidad y renombramiento de título
                     html_limpio = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_limpio = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_limpio)
                     html_limpio = html_limpio.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    # INYECCIÓN DE PIN DE UBICACIÓN
                     loc_name = get_location_name(lat, lon)
                     pin_html = f"<div class='location-pin'><span style='color: #d9534f;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
-                    
-                    # Insertar el Pin justo antes de la primera tabla
                     html_limpio = html_limpio.replace("<table", f"{pin_html}\n<table", 1)
                     
                     html_preview_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_preview))
@@ -141,10 +136,15 @@ if st.button("Generar Reporte Maestro"):
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
                     st.download_button(label="📥 Descargar Reporte (PDF Vertical)", data=pdf_file, file_name=f"Condiciones_Climaticas_{lat}_{lon}.pdf", mime="application/pdf")
+                
+                # ESCUDO ANTI HTTP 422 MANTENIDO:
+                elif respuesta.status_code == 422:
+                    st.error("❌ ERROR MATEMÁTICO (HTTP 422): El servidor ha rechazado los parámetros. Los Reportes de 'Condiciones de Diseño' requieren obligatoriamente un rango histórico de años más amplio para poder calcular percentiles y pronósticos de retorno a 50 años. Por favor, amplía el deslizador de años.")
                 else: 
-                    st.error(f"Error de la API NASA: Servidores saturados o inestables (HTTP {respuesta.status_code}). Por favor, intente nuevamente en unos minutos.")
+                    st.error(f"❌ Error de la API NASA: Servidores saturados o inestables (HTTP {respuesta.status_code}).")
+            
             except Exception as e: 
-                st.error("Error de conexión: Tiempo de espera agotado. Los servidores de NASA POWER están ocupados en este momento.")
+                st.error("❌ Error de conexión: Tiempo de espera agotado. Los servidores están ocupados en este momento.")
 
     else:
         # =========================================================
@@ -195,7 +195,6 @@ if st.button("Generar Reporte Maestro"):
                 return r
 
             m_rows = ""
-            # 1. Temperatures
             m_rows += build_row([("Temperatures,<br>Degree-Days and<br>Degree-Hours<br>(°C)", 8, 1, True), ("DBAvg", 1, 2, False)], lambda x: x['DB'].mean())
             m_rows += build_row([("DBStd", 1, 2, False)], lambda x: x['DB'].std())
             m_rows += build_row([("HDD10.0", 1, 2, False)], lambda x: (10.0 - x['DB']).clip(lower=0).sum() / 24)
@@ -205,18 +204,15 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("CDH23.3", 1, 2, False)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
             m_rows += build_row([("CDH26.7", 1, 2, False)], lambda x: (x['DB'] - 26.7).clip(lower=0).sum())
             
-            # 2. Wind
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Wind (m/s)", 1, 1, True), ("WSAvg", 1, 2, False)], lambda x: x['WS'].mean())
             
-            # 3. Precipitation
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Precipitation<br>(mm)", 4, 1, True), ("PrecAvg", 1, 2, False)], lambda x: x['Precip'].sum())
             m_rows += build_row([("PrecMax", 1, 2, False)], lambda x: x['Precip'].sum()) 
             m_rows += build_row([("PrecMin", 1, 2, False)], lambda x: x['Precip'].sum()) 
             m_rows += build_row([("PrecStd", 1, 2, False)], lambda x: 0.0)
             
-            # 4. Monthly Design DB & MCWB
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Monthly Design<br>Dry Bulb and Mean<br>Coincident Wet<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.996))
             m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.996)))
@@ -227,7 +223,6 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("10%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.900))
             m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.900)))
 
-            # 5. Monthly Design WB & MCDB
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Monthly Design<br>Wet Bulb and Mean<br>Coincident Dry<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.996))
             m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.996)))
@@ -238,7 +233,6 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("10%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.900))
             m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.900)))
 
-            # 6. Mean Daily Temperature Range
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Mean Daily<br>Temperature Range<br>(°C)", 5, 1, True), ("MDBR", 1, 2, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
             m_rows += build_row([("5% DB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).quantile(0.95))
@@ -246,7 +240,6 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("5% WB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
             m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).quantile(0.95))
 
-            # 7. Solar Radiation
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
             m_rows += build_row([("Clear Sky Solar<br>Irradiance (W m-2)", 2, 1, True), ("Ebn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DirNorm'].mean() if not x.empty else 0)
             m_rows += build_row([("Edn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DifHorz'].mean() if not x.empty else 0)
@@ -255,7 +248,6 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("All-Sky Solar<br>Radiation (W m-2)", 2, 1, True), ("RadAvg", 1, 2, False)], lambda x: (x['GloHorz'].mean() * 24 / 1000) if not x.empty else 0)
             m_rows += build_row([("RadStd", 1, 2, False)], lambda x: (x['GloHorz'].std() * 24 / 1000) if not x.empty else 0)
 
-            # --- CONSTRUCCIÓN DEL PIN PARA EPW ---
             city_only = selected_city.split('-')[-1].strip().upper()
             pin_html = f"<div class='location-pin'><span style='color: #d9534f;'>📍</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
 
