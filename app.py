@@ -7,7 +7,7 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
 st.title("🌍 Generador de Reportes Climáticos ASHRAE")
 
-# 1. Función para decodificar archivos locales (SOLO CIUDAD)
+# 1. Función para decodificar archivos locales: PAÍS - DEPARTAMENTO - CIUDAD (Sin estación)
 def clean_city_name(filename):
     dept_map = {
         "AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa",
@@ -23,30 +23,27 @@ def clean_city_name(filename):
             pais = "Perú" if parts[0] == "PER" else parts[0]
             departamento = dept_map.get(parts[1], parts[1])
             
-            # Paso 1: Unir las palabras separadas por puntos (Ej: La.Merced -> La Merced)
             subparts = parts[2].split('.')
             city_words = []
             for p in subparts:
-                if p in ['AP', 'Intl'] or p.isdigit():
+                # Filtrar códigos técnicos o extensiones comunes en TMYx
+                if p in ['AP', 'Intl', 'TMYx'] or p.isdigit() or ('-' in p and p.split('-')[0].isdigit()):
                     break
                 city_words.append(p)
             
             base_name = " ".join(city_words)
-            
-            # Paso 2: AISLAR SOLO LA CIUDAD (Corta en el guion '-' y descarta la estación)
-            ciudad = base_name.split('-')[0].strip()
-            
+            ciudad = base_name.split('-')[0].strip() # Ocultar nombre del aeropuerto/estación
             return f"{pais} - {departamento} - {ciudad}"
             
         return filename.replace(".epw", "")
     except:
         return filename
 
-# 2. Función para geocodificación inversa
+# 2. Función para obtener ubicación real por coordenadas (Geocodificación)
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        headers = {'User-Agent': 'GeneradorASHRAE_Peru_v2'}
+        headers = {'User-Agent': 'GeneradorASHRAE_Peru_v3'}
         response = requests.get(url, headers=headers, timeout=5).json()
         address = response.get('address', {})
         
@@ -60,13 +57,33 @@ def get_location_name(lat, lon):
     except:
         return f"Coordenadas [Lat: {lat}, Lon: {lon}]"
 
-# 3. Función para listar archivos
+# 3. Función para calcular Presión Atmosférica Estándar (kPa) según elevación
+def calc_stdp(elev_m):
+    try:
+        z = float(elev_m)
+        p = 101.325 * (1 - 2.25577e-5 * z)**5.25588
+        return f"{p:.2f}"
+    except:
+        return "101.32"
+
+# 4. Función para formatear coordenadas al estilo ASHRAE (N/S, E/W)
+def format_coord(val, is_lat):
+    try:
+        v = float(val)
+        if is_lat:
+            return f"{abs(v):.3f}{'N' if v >= 0 else 'S'}"
+        else:
+            return f"{abs(v):.3f}{'E' if v >= 0 else 'W'}"
+    except:
+        return str(val)
+
+# 5. Función para mapear archivos de la carpeta data
 def get_epw_mapping():
     if not os.path.exists("data"): return {}
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
     return {clean_city_name(f): f for f in sorted(files)}
 
-# --- INTERFAZ ---
+# --- INTERFAZ STREAMLIT ---
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
@@ -75,40 +92,55 @@ selected_city = col1.selectbox("Seleccionar ciudad:", [OPCION_MANUAL] + list(fil
 
 usar_local = selected_city != OPCION_MANUAL
 
-lat = col2.number_input("Latitud", value=-9.5822, format="%.4f", disabled=usar_local)
-lon = col3.number_input("Longitud", value=-77.0234, format="%.4f", disabled=usar_local)
+lat = col2.number_input("Latitud", value=-12.022, format="%.4f", disabled=usar_local)
+lon = col3.number_input("Longitud", value=-77.114, format="%.4f", disabled=usar_local)
 year = col3.selectbox("Año de análisis (Satelital):", list(range(2024, 2014, -1)), disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
-    with st.spinner("Procesando datos y diseñando PDF Premium..."):
+    with st.spinner("Procesando matriz meteorológica y diseñando PDF..."):
         fuente = ""
         df = None
         city_display = "Ubicación"
-        alt_display = "N/A"
+        alt_display = "0"
+        period_display = "N/A"
+        wmo_display = "N/A"
 
-        # A) LÓGICA LOCAL (EPW)
+        # A) LÓGICA LOCAL (EPW PRE-CARGADO)
         if usar_local:
             filename = file_map[selected_city]
-            city_display = selected_city
+            city_display = selected_city.upper()
             
+            # Extracción del Periodo analizando las partes del archivo
+            period_display = "TMYx (Año Típico)"
+            try:
+                partes_punto = filename.replace(".epw", "").split('.')
+                for p in partes_punto:
+                    if "-" in p and len(p) == 9 and p.split('-')[0].isdigit():
+                        period_display = f"{p} (TMYx)"
+                        break
+            except:
+                pass
+
+            # Extraer WMO, Lat, Lon, Alt de la cabecera nativa del EPW
             try:
                 with open(f"data/{filename}", 'r', encoding='utf-8') as f:
                     first_line = f.readline()
                     header_data = first_line.split(',')
-                    lat_real = float(header_data[6])
-                    lon_real = float(header_data[7])
+                    wmo_display = header_data[5].strip()
+                    lat = float(header_data[6])
+                    lon = float(header_data[7])
                     alt_display = header_data[9].strip()
-                    lat = lat_real
-                    lon = lon_real
             except:
                 pass 
 
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,6,8], names=['Month', 'Day', 'DB', 'WB'])
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
 
-        # B) LÓGICA COORDENADAS (NASA + GEOCODIFICACIÓN)
+        # B) LÓGICA MANUAL (SATELITAL)
         else:
-            city_display = get_location_name(lat, lon)
+            city_display = get_location_name(lat, lon).upper()
+            period_display = f"{year} (Año Real)"
+            wmo_display = "SATELITAL"
             
             url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={year}0101&end={year}1231&format=JSON"
             res = requests.get(url).json()
@@ -116,9 +148,9 @@ if st.button("Generar Reporte Profesional"):
             df = pd.DataFrame({'DB': list(res['properties']['parameter']['T2M'].values()), 
                                'WB': list(res['properties']['parameter']['T2MWET'].values())})
             df['Month'] = pd.date_range(start=f"{year}-01-01", periods=len(df), freq='h').month
-            fuente = f"Generado mediante reanálisis de datos satelitales (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa satelital."
+            fuente = f"Generado mediante reanálisis de datos satelitales NASA (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa satelital."
 
-        # Cálculos de Ingeniería
+        # Procesamiento matemático de percentiles ASHRAE (8760 horas por año)
         df['Day'] = pd.date_range(start=f"2024-01-01", periods=len(df), freq='h').date
         
         def calc_mcwb(sub, t):
@@ -145,6 +177,10 @@ if st.button("Generar Reporte Profesional"):
                 'RangeC': range_c, 'RangeF': range_c*9/5
             })
 
+        lat_str = format_coord(lat, True)
+        lon_str = format_coord(lon, False)
+        stdp_display = calc_stdp(alt_display)
+
         # --- CONSTRUCCIÓN DE HTML PREMIUM ---
         filas = "".join([f"""
         <tr>
@@ -158,23 +194,43 @@ if st.button("Generar Reporte Profesional"):
         html_content = f"""
         <html><head><style>
             @page {{ size: A4 landscape; margin: 1cm; }}
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10px; color: #333; }}
-            h2 {{ color: #1e5a99; border-bottom: 2px solid #1e5a99; padding-bottom: 5px; margin-bottom: 10px; font-size: 18px; }}
-            p {{ margin: 4px 0; font-size: 11px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); }}
-            th, td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
-            th {{ font-weight: bold; font-size: 9px; }}
+            body {{ font-family: 'Times New Roman', serif; font-size: 11px; color: #000; }}
+            
+            .report-title {{ font-size: 13px; margin-bottom: 20px; color: #444; }}
+            .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 15px; }}
+            
+            table {{ width: 100%; border-collapse: collapse; }}
+            .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
+            .meta-table td {{ border: none; text-align: center; padding: 3px; }}
+            
+            .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
+            .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
+            .data-table th {{ font-weight: bold; font-size: 9px; }}
             .azul {{ background-color: #2e75b6; color: white; border: 1px solid #1e5a99; }}
             .naranja {{ background-color: #e46c0a; color: white; border: 1px solid #b35508; }}
             .verde {{ background-color: #28a745; color: white; border: 1px solid #1e7e34; }}
-            .footer {{ font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
-            tr:nth-child(even) td {{ background-color: #fdfdfd; }}
+            .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
+            
+            .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
         </style></head>
         <body>
-            <h2>CONDICIONES CLIMÁTICAS MENSUALES DE DISEÑO</h2>
-            <p><strong>Ubicación:</strong> {city_display} | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon} | <strong>Elevación:</strong> {alt_display} m</p>
+            <div class="report-title">2025 ASHRAE Handbook - Fundamentals (SI Approximation)</div>
             
-            <table>
+            <div class="location-header">📍 {city_display} (WMO: {wmo_display})</div>
+            
+            <table class="meta-table">
+                <tr>
+                    <td>Lat: <strong>{lat_str}</strong></td>
+                    <td>Lon: <strong>{lon_str}</strong></td>
+                    <td>Elev: <strong>{alt_display}</strong></td>
+                    <td>StdP: <strong>{stdp_display}</strong></td>
+                    <td>Time zone: <strong>-5.00 (W05)</strong></td>
+                    <td>Period: <strong>{period_display}</strong></td>
+                    <td>WBAN: <strong>99999</strong></td>
+                </tr>
+            </table>
+            
+            <table class="data-table">
                 <tr>
                     <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
                     <th colspan="8" class="azul">Refrigeración (Cooling)</th>
@@ -200,5 +256,5 @@ if st.button("Generar Reporte Profesional"):
         </body></html>"""
         
         pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte generado con estándar profesional!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+        st.success("¡Reporte maestro generado!")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_ASHRAE_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
