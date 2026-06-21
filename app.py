@@ -7,13 +7,15 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
 st.title("🌍 Generador de Reportes Climáticos ASHRAE")
 
-# 1. Función para limpiar el nombre
+# 1. Función para limpiar el nombre y agregar "Perú - "
 def clean_city_name(filename):
     try:
-        # Extrae "Chachapoyas" de "PER_AMA_Chachapoyas.AP.844440..."
+        # Ejemplo: "PER_AMA_Chachapoyas.AP.844440_TMYx.2011-2025.epw"
         parts = filename.split('_')
         if len(parts) >= 3:
-            return parts[2].split('.')[0].replace("-", " ")
+            pais = "Perú" if parts[0] == "PER" else parts[0]
+            ciudad = parts[2].split('.')[0].replace("-", " ")
+            return f"{pais} - {ciudad}"
         return filename.replace(".epw", "")
     except:
         return filename
@@ -28,12 +30,17 @@ def get_epw_mapping():
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
-# Etiqueta actualizada según tu solicitud
-selected_city = col1.selectbox("Seleccionar ciudad:", ["-- Usar datos NASA (Online) --"] + list(file_map.keys()))
+# Opción por defecto actualizada
+OPCION_NASA = "-- Usar data NASA --"
+selected_city = col1.selectbox("Seleccionar ciudad:", [OPCION_NASA] + list(file_map.keys()))
 
-lat = col2.number_input("Latitud (Solo para NASA)", value=-9.5822, format="%.4f")
-lon = col3.number_input("Longitud (Solo para NASA)", value=-77.0234, format="%.4f")
-year = col3.selectbox("Año de análisis (Solo para NASA):", list(range(2024, 2014, -1)))
+# Variable de control: True si seleccionó una ciudad del EPW, False si usa NASA
+usar_local = selected_city != OPCION_NASA
+
+# Los inputs ahora se desactivan (disabled) si se selecciona una ciudad local
+lat = col2.number_input("Latitud (Solo para NASA)", value=-9.5822, format="%.4f", disabled=usar_local)
+lon = col3.number_input("Longitud (Solo para NASA)", value=-77.0234, format="%.4f", disabled=usar_local)
+year = col3.selectbox("Año de análisis (Solo para NASA):", list(range(2024, 2014, -1)), disabled=usar_local)
 
 if st.button("Generar Reporte Profesional"):
     with st.spinner("Procesando datos y diseñando PDF Premium..."):
@@ -43,7 +50,7 @@ if st.button("Generar Reporte Profesional"):
         alt_display = "N/A"
 
         # A) LÓGICA LOCAL (EPW)
-        if selected_city != "-- Usar datos NASA (Online) --":
+        if usar_local:
             filename = file_map[selected_city]
             city_display = selected_city
             
@@ -52,14 +59,16 @@ if st.button("Generar Reporte Profesional"):
                 with open(f"data/{filename}", 'r', encoding='utf-8') as f:
                     first_line = f.readline()
                     header_data = first_line.split(',')
-                    lat = float(header_data[6])
-                    lon = float(header_data[7])
+                    lat_real = float(header_data[6])
+                    lon_real = float(header_data[7])
                     alt_display = header_data[9].strip()
+                    # Actualizamos visualmente para el PDF
+                    lat = lat_real
+                    lon = lon_real
             except:
-                pass # Si falla, usa los valores por defecto
+                pass 
 
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,6,8], names=['Month', 'Day', 'DB', 'WB'])
-            # Cita de fuente para archivos locales
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
 
         # B) LÓGICA NASA (Online)
@@ -71,7 +80,6 @@ if st.button("Generar Reporte Profesional"):
             df = pd.DataFrame({'DB': list(res['properties']['parameter']['T2M'].values()), 
                                'WB': list(res['properties']['parameter']['T2MWET'].values())})
             df['Month'] = pd.date_range(start=f"{year}-01-01", periods=len(df), freq='h').month
-            # Cita de fuente para NASA
             fuente = f"Generado mediante reanálisis de datos NASA POWER (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa de la NASA."
 
         # Cálculos de Ingeniería
