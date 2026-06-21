@@ -322,4 +322,85 @@ if st.button("Generar Reporte Profesional"):
                 filas_indicators = ""
                 for k, name in indicadores_dict.items():
                     if k in params:
-                        # Obtenemos el valor promedio anual
+                        # Obtenemos el valor promedio anual o el acumulado reportado
+                        val = params[k].get('ann', params[k].get('avg', list(params[k].values())[0]))
+                        # Si es numérico, lo formateamos a 1 decimal
+                        val_str = f"{val:.1f}" if isinstance(val, (int, float)) else str(val)
+                        filas_indicators += f"""
+                        <tr>
+                            <td style="text-align:left; font-weight:bold; padding:10px; background-color:#f8f9fa;">{name}</td>
+                            <td style="font-size:12px; font-weight:bold; color:#1e5a99;">{val_str}</td>
+                        </tr>"""
+                
+                tabla_html = f"""
+                <table class="data-table" style="max-width: 600px; margin: 20px auto;">
+                    <thead>
+                        <tr>
+                            <th class="azul" style="padding:10px; text-align:left;">Indicador Climático Sostenible</th>
+                            <th class="azul" style="padding:10px; width:150px;">Valor Registrado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filas_indicators}
+                    </tbody>
+                </table>"""
+                
+                fuente = "Fuente de datos: Reporte de Aplicación e Indicadores Climáticos Oficiales de NASA POWER (2001-2024)."
+                
+            except Exception as e:
+                st.error("Error al obtener los indicadores oficiales de la NASA. Verifica las coordenadas.")
+                st.stop()
+
+        # Conversiones de altitud comunes para el encabezado
+        try:
+            alt_ft = float(alt_display) * 3.28084
+            alt_ft_str = f"{alt_ft:.1f}"
+        except:
+            alt_ft_str = "0.0"
+            
+        lat_str = format_coord(lat, True)
+        lon_str = format_coord(lon, False)
+        stdp_display = calc_stdp(alt_display)
+
+        # --- ENSAMBLAJE DEL DOCUMENTO PDF PREMIUM ---
+        html_content = f"""
+        <html><head><style>
+            @page {{ size: A4 landscape; margin: 1cm; }}
+            body {{ font-family: 'Times New Roman', serif; font-size: 11px; color: #000; }}
+            .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-top: 15px; margin-bottom: 15px; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
+            .meta-table td {{ border: none; text-align: center; padding: 3px; }}
+            .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
+            .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
+            .data-table th {{ font-weight: bold; font-size: 9px; }}
+            .azul {{ background-color: #1e5a99; color: white; }}
+            .naranja {{ background-color: #e46c0a; color: white; }}
+            .verde {{ background-color: #28a745; color: white; }}
+            .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
+            .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 25px; font-style: italic; }}
+        </style></head>
+        <body>
+            <div class="location-header">CONDICIONES CLIMÁTICAS DE DISEÑO</div>
+            <div style="text-align: center; font-weight: bold; font-size: 13px; margin-bottom: 10px;">{city_display} (WMO: {wmo_display})</div>
+            
+            <table class="meta-table">
+                <tr>
+                    <td>Lat: <strong>{lat_str}</strong></td>
+                    <td>Lon: <strong>{lon_str}</strong></td>
+                    <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
+                    <td>StdP: <strong>{stdp_display} kPa</strong></td>
+                    <td>Time zone: <strong>-5.00 (W05)</strong></td>
+                    <td>Period: <strong>{period_display}</strong></td>
+                    <td>WBAN: <strong>99999</strong></td>
+                </tr>
+            </table>
+            
+            {tabla_html}
+            
+            <div class="footer">{fuente}</div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte maestro generado con éxito!")
+        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_Clima_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
