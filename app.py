@@ -300,4 +300,45 @@ if st.button("Generar MEGA REPORTE VERTICAL"):
                     <td>n = 5 years</td><td>n = 10 years</td><td>n = 20 years</td><td>n = 50 years</td>
                 </tr>
                 <tr>
-                    <td>{df['WS'].quantile(0.990):.1f}</td><td>{df['WS'].quantile(
+                    <td>{df['WS'].quantile(0.990):.1f}</td><td>{df['WS'].quantile(0.975):.1f}</td><td>{df['WS'].quantile(0.950):.1f}</td>
+                    <td>{ann_min_db.mean():.1f} / {ann_max_db.mean():.1f}</td><td>{ann_max_db.std():.1f}</td>
+                    <td>{ann_min_wb.mean():.1f} / {ann_max_wb.mean():.1f}</td><td>{ann_max_wb.std():.1f}</td>
+                    <td>{get_rp_min(ann_min_db, 5):.1f} / {get_rp_max(ann_max_db, 5):.1f}</td>
+                    <td>{get_rp_min(ann_min_db, 10):.1f} / {get_rp_max(ann_max_db, 10):.1f}</td>
+                    <td>{get_rp_min(ann_min_db, 20):.1f} / {get_rp_max(ann_max_db, 20):.1f}</td>
+                    <td>{get_rp_min(ann_min_db, 50):.1f} / {get_rp_max(ann_max_db, 50):.1f}</td>
+                </tr>
+            </table>
+
+            <table>
+                <tr><th colspan="27" class="nasa-blue">Monthly Climatic Design Conditions</th></tr>
+                <tr class="gray-header">
+                    <td rowspan="2">Mth</td>
+                    <td colspan="9">Temperatures, Degree-Days and Wind</td>
+                    <td colspan="8" style="background-color: #d1e2f3;">Monthly Design Dry Bulb / MCWB (°C)</td>
+                    <td colspan="8" style="background-color: #ffe6cc;">Monthly Design Wet Bulb / MCDB (°C)</td>
+                    <td rowspan="2">MDBR</td>
+                </tr>
+                <tr class="gray-header">
+                    <td>DBAvg</td><td>DBStd</td>
+                    <td>HD10</td><td>HD18</td><td>CD10</td><td>CD18</td><td>CH23</td><td>CH26</td>
+                    <td>WSAvg</td>
+                    
+                    <td colspan="2" style="background-color: #d1e2f3;">0.4%</td><td colspan="2" style="background-color: #d1e2f3;">2%</td>
+                    <td colspan="2" style="background-color: #d1e2f3;">5%</td><td colspan="2" style="background-color: #d1e2f3;">10%</td>
+                    
+                    <td colspan="2" style="background-color: #ffe6cc;">0.4%</td><td colspan="2" style="background-color: #ffe6cc;">2%</td>
+                    <td colspan="2" style="background-color: #ffe6cc;">5%</td><td colspan="2" style="background-color: #ffe6cc;">10%</td>
+                </tr>
+                {m_rows}
+            </table>
+            
+            <div class="footer">
+                <b>{fuente}</b> | Este reporte emplea formulación psicrométrica avanzada para derivar HR (Ratio de Humedad) y Entalpía desde la presión de vapor, 
+                así como análisis de frecuencia para Periodos de Retorno Extremos empíricos. Formato de renderizado A4-Vertical.
+            </div>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Matriz Completa Estilo NASA generada exitosamente en formato Vertical!")
+        st.download_button("📥 Descargar Reporte NASA Vertical", data=pdf_file, file_name=f"NASA_Matrix_Vertical_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
