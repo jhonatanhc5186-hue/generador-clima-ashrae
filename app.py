@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import os
+import streamlit.components.v1 as components
 from weasyprint import HTML
 
 st.set_page_config(page_title="Generador de Reportes Climáticos", layout="wide")
@@ -46,7 +47,7 @@ def clean_city_name(filename):
     except:
         return filename
 
-# 2. Función para obtener ubicación real por coordenadas
+# 2. Función para obtener ubicación real (No se usa en el reporte HTML NASA nativo, solo para PDF)
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
@@ -73,7 +74,7 @@ def calc_stdp(elev_m):
     except:
         return "101.32"
 
-# 4. Función para formatear coordenadas (N/S, E/W)
+# 4. Función para formatear coordenadas estilo normativo
 def format_coord(val, is_lat):
     try:
         v = float(val)
@@ -90,11 +91,11 @@ def get_epw_mapping():
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
     return {clean_city_name(f): f for f in sorted(files)}
 
-# --- INTERFAZ STREAMLIT ---
+# --- INTERFAZ STREAMLIT REDISEÑADA ---
 
 modo = st.radio(
     "Seleccione el método de generación:",
-    ["🏢 Búsqueda por Estación de Ciudad", "📍 Búsqueda por Coordenadas (Satélite)"],
+    ["🏢 Búsqueda por Estación de Ciudad (Reporte PDF Premium)", "📍 Búsqueda por Coordenadas (Reporte HTML NASA Oficial)"],
     horizontal=True
 )
 
@@ -103,9 +104,8 @@ st.markdown("---")
 col1, col2, col3 = st.columns(3)
 file_map = get_epw_mapping()
 
-tipo_reporte_satelital = "Condiciones de Diseño (Percentiles)"
-
-if modo == "🏢 Búsqueda por Estación de Ciudad":
+# Comportamiento Dinámico de la Interfaz según la opción seleccionada
+if "Estación" in modo:
     usar_local = True
     selected_city = col1.selectbox("Seleccionar ciudad de la base de datos:", list(file_map.keys()))
     lat = col2.number_input("Latitud", value=0.0000, format="%.4f", disabled=True)
@@ -113,32 +113,30 @@ if modo == "🏢 Búsqueda por Estación de Ciudad":
 else:
     usar_local = False
     selected_city = None
-    tipo_reporte_satelital = col1.selectbox(
-        "Tipo de Reporte Satelital:", 
-        ["Condiciones de Diseño (Percentiles)", "Indicadores Climáticos Oficiales (NASA POWER)"]
-    )
+    col1.info("📅 Periodo de análisis Satelital NASA Fijado: 2001 - 2024")
     lat = col2.number_input("Latitud", value=-9.5653, format="%.4f")
     lon = col3.number_input("Longitud", value=-77.0364, format="%.4f")
 
 st.markdown("<br>", unsafe_allow_html=True) 
 
 if st.button("Generar Reporte Profesional"):
-    with st.spinner("Procesando datos meteorológicos solicitados..."):
-        fuente = ""
-        html_content = ""
-        city_display = "Ubicación"
-        alt_display = "0"
-        period_display = "2001-2024" if not usar_local else "N/A"
-        wmo_display = "N/A"
+    
+    # ==========================================
+    # MODO A: ESTACIÓN DE CIUDAD (REPORTE PDF)
+    # ==========================================
+    if usar_local:
+        with st.spinner("Leyendo archivo EPW local y generando PDF..."):
+            fuente = ""
+            df = None
+            city_display = "Ubicación"
+            alt_display = "0"
+            period_display = "N/A"
+            wmo_display = "N/A"
 
-        # ==========================================
-        # MODO A: ESTACIÓN LOCAL (EPW)
-        # ==========================================
-        if usar_local:
             filename = file_map[selected_city]
             city_display = selected_city.upper()
-            period_display = "TMYx (Año Típico)"
             
+            period_display = "TMYx (Año Típico)"
             try:
                 partes_punto = filename.replace(".epw", "").split('.')
                 for p in partes_punto:
@@ -153,17 +151,17 @@ if st.button("Generar Reporte Profesional"):
                     first_line = f.readline()
                     header_data = first_line.split(',')
                     wmo_display = header_data[5].strip()
-                    lat = float(header_data[6])
-                    lon = float(header_data[7])
+                    lat_val = float(header_data[6])
+                    lon_val = float(header_data[7])
                     alt_display = header_data[9].strip()
             except:
-                pass 
+                lat_val = 0.0
+                lon_val = 0.0
 
             df = pd.read_csv(f"data/{filename}", skiprows=8, header=None, usecols=[1,2,6,8], names=['Month', 'Day', 'DB', 'WB'])
             df['Day'] = pd.date_range(start="2024-01-01", periods=len(df), freq='h').date
             fuente = "Fuente de datos: EnergyPlus (Archivo climático EPW)."
 
-            # Cálculos de Percentiles
             def calc_mcwb(sub, t):
                 h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
                 return h['WB'].mean() if not h.empty else sub['WB'].max()
@@ -185,82 +183,15 @@ if st.button("Generar Reporte Profesional"):
                     'DB996': db996, 'DB996F': (db996*9/5)+32, 'DB990': db990, 'DB990F': (db990*9/5)+32, 'RangeC': range_c, 'RangeF': range_c*9/5
                 })
 
-            filas = "".join([f"""
-            <tr>
-                <td style="text-align:left; font-weight:bold; background-color:#f8f9fa;">{r['Mes']}</td>
-                <td>{r['DB04']:.1f}</td><td>{r['DB04F']:.1f}</td><td>{r['MCWB04']:.1f}</td><td>{r['MCWB04F']:.1f}</td>
-                <td>{r['DB20']:.1f}</td><td>{r['DB20F']:.1f}</td><td>{r['MCWB20']:.1f}</td><td>{r['MCWB20F']:.1f}</td>
-                <td>{r['DB996']:.1f}</td><td>{r['DB996F']:.1f}</td><td>{r['DB990']:.1f}</td><td>{r['DB990F']:.1f}</td>
-                <td>{r['RangeC']:.1f}</td><td>{r['RangeF']:.1f}</td>
-            </tr>""" for r in data_rows])
-
-            tabla_html = f"""
-            <table class="data-table">
-                <tr>
-                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
-                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
-                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
-                    <th colspan="2" class="verde">MCDBR</th>
-                </tr>
-                <tr>
-                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
-                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
-                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
-                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
-                </tr>
-                <tr>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
-                    <th class="verde">°C</th><th class="verde">°F</th>
-                </tr>
-                {filas}
-            </table>"""
-
-        # ==========================================
-        # MODO B: SATELITAL - PERCENTILES DE DISEÑO
-        # ==========================================
-        elif tipo_reporte_satelital == "Condiciones de Diseño (Percentiles)":
-            city_display = get_location_name(lat, lon).upper()
-            wmo_display = "SATELITAL"
-            period_display = "2024"
+            lat_str = format_coord(lat_val, True)
+            lon_str = format_coord(lon_val, False)
+            stdp_display = calc_stdp(alt_display)
             
-            url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start=20240101&end=20241231&format=JSON"
             try:
-                res = requests.get(url, timeout=20).json()
-                alt_display = str(round(res['geometry']['coordinates'][2], 1))
-                db_vals = list(res['properties']['parameter']['T2M'].values())
-                wb_vals = list(res['properties']['parameter']['T2MWET'].values())
-                df = pd.DataFrame({'DB': db_vals, 'WB': wb_vals})
-                df['Month'] = pd.date_range(start="2024-01-01", periods=len(df), freq='h').month
-                df['Day'] = pd.date_range(start="2024-01-01", periods=len(df), freq='h').date
+                alt_ft = float(alt_display) * 3.28084
+                alt_ft_str = f"{alt_ft:.1f}"
             except:
-                st.error("Error al conectar con la base de datos satelital.")
-                st.stop()
-
-            fuente = "Generado mediante reanálisis de datos satelitales NASA (Año 2024). Procesado metodológicamente."
-            
-            # Mismos cálculos que local
-            def calc_mcwb(sub, t):
-                h = sub[(sub['DB'] >= t - 0.5) & (sub['DB'] <= t + 0.5)]
-                return h['WB'].mean() if not h.empty else sub['WB'].max()
-
-            data_rows = []
-            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            for m in range(1, 13):
-                df_m = df[df['Month'] == m]
-                if df_m.empty: continue
-                db04 = df_m['DB'].quantile(0.996)
-                db20 = df_m['DB'].quantile(0.980)
-                db996 = df_m['DB'].quantile(0.004)
-                db990 = df_m['DB'].quantile(0.010)
-                range_c = (df_m.groupby('Day')['DB'].max() - df_m.groupby('Day')['DB'].min()).mean()
-                
-                data_rows.append({
-                    'Mes': meses[m-1], 'DB04': db04, 'DB04F': (db04*9/5)+32, 'MCWB04': calc_mcwb(df_m, db04), 'MCWB04F': (calc_mcwb(df_m, db04)*9/5)+32,
-                    'DB20': db20, 'DB20F': (db20*9/5)+32, 'MCWB20': calc_mcwb(df_m, db20), 'MCWB20F': (calc_mcwb(df_m, db20)*9/5)+32,
-                    'DB996': db996, 'DB996F': (db996*9/5)+32, 'DB990': db990, 'DB990F': (db990*9/5)+32, 'RangeC': range_c, 'RangeF': range_c*9/5
-                })
+                alt_ft_str = "0.0"
 
             filas = "".join([f"""
             <tr>
@@ -271,136 +202,95 @@ if st.button("Generar Reporte Profesional"):
                 <td>{r['RangeC']:.1f}</td><td>{r['RangeF']:.1f}</td>
             </tr>""" for r in data_rows])
 
-            tabla_html = f"""
-            <table class="data-table">
-                <tr>
-                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
-                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
-                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
-                    <th colspan="2" class="verde">MCDBR</th>
-                </tr>
-                <tr>
-                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
-                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
-                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
-                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
-                </tr>
-                <tr>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
-                    <th class="verde">°C</th><th class="verde">°F</th>
-                </tr>
-                {filas}
-            </table>"""
-
-        # ==========================================
-        # MODO C: REPORTE DE INDICADORES OFICIALES NASA (2001-2024)
-        # ==========================================
-        else:
-            city_display = get_location_name(lat, lon).upper()
-            wmo_display = "NASA-INDICATORS"
-            period_display = "2001-2024"
+            html_content = f"""
+            <html><head><style>
+                @page {{ size: A4 landscape; margin: 1cm; }}
+                body {{ font-family: 'Times New Roman', serif; font-size: 11px; color: #000; }}
+                .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-top: 15px; margin-bottom: 15px; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
+                .meta-table td {{ border: none; text-align: center; padding: 3px; }}
+                .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
+                .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
+                .data-table th {{ font-weight: bold; font-size: 9px; }}
+                .azul {{ background-color: #1e5a99; color: white; }}
+                .naranja {{ background-color: #e46c0a; color: white; }}
+                .verde {{ background-color: #28a745; color: white; }}
+                .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
+                .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 25px; font-style: italic; }}
+            </style></head>
+            <body>
+                <div class="location-header">CONDICIONES CLIMÁTICAS DE DISEÑO</div>
+                <div style="text-align: center; font-weight: bold; font-size: 13px; margin-bottom: 10px;">{city_display} (WMO: {wmo_display})</div>
+                
+                <table class="meta-table">
+                    <tr>
+                        <td>Lat: <strong>{lat_str}</strong></td>
+                        <td>Lon: <strong>{lon_str}</strong></td>
+                        <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
+                        <td>StdP: <strong>{stdp_display} kPa</strong></td>
+                        <td>Time zone: <strong>-5.00 (W05)</strong></td>
+                        <td>Period: <strong>{period_display}</strong></td>
+                        <td>WBAN: <strong>99999</strong></td>
+                    </tr>
+                </table>
+                
+                <table class="data-table">
+                    <tr>
+                        <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
+                        <th colspan="8" class="azul">Refrigeración (Cooling)</th>
+                        <th colspan="4" class="naranja">Calefacción (Heating)</th>
+                        <th colspan="2" class="verde">MCDBR</th>
+                    </tr>
+                    <tr>
+                        <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
+                        <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
+                        <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
+                        <th colspan="2" class="verde">Δ°C | Δ°F</th>
+                    </tr>
+                    <tr>
+                        <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                        <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
+                        <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
+                        <th class="verde">°C</th><th class="verde">°F</th>
+                    </tr>
+                    {filas}
+                </table>
+                
+                <div class="footer">{fuente}</div>
+            </body></html>"""
             
-            # Consultamos directamente la API oficial de Indicadores de la NASA
-            url = f"https://power.larc.nasa.gov/api/application/indicators/point?start=2001&end=2024&latitude={lat}&longitude={lon}&format=JSON&user=DAVE"
+            pdf_file = HTML(string=html_content).write_pdf()
+            st.success("¡Reporte maestro generado con éxito!")
+            st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_Clima_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+
+    # ==========================================
+    # MODO B: SATELITAL (HTML DIRECTO DESDE LA NASA)
+    # ==========================================
+    else:
+        with st.spinner("Conectando con NASA POWER para extraer el reporte HTML Oficial (2001-2024)..."):
+            
+            # Construcción dinámica del enlace oficial de la NASA 
+            url_nasa = f"https://power.larc.nasa.gov/api/application/indicators/point?start=2001&end=2024&latitude={lat}&longitude={lon}&format=html"
+            
             try:
-                res = requests.get(url, timeout=20).json()
-                alt_display = str(round(res['geometry']['coordinates'][2], 1))
-                params = res['properties']['parameter']
+                res = requests.get(url_nasa, timeout=30)
                 
-                # Mapeamos los indicadores clave para mostrarlos de forma limpia y profesional
-                indicadores_dict = {
-                    "CDD18_3": "Grados Día de Refrigeración (Base 18.3°C)",
-                    "HDD18_3": "Grados Día de Calefacción (Base 18.3°C)",
-                    "FROST_DAYS": "Días de Heladas al Año (Temp < 0°C)",
-                    "T2M_MAX_AVG": "Promedio de Temperaturas Máximas Anuales",
-                    "T2M_MIN_AVG": "Promedio de Temperaturas Mínimas Anuales",
-                    "T2M_RANGE_AVG": "Oscilación Térmica Promedio Diaria Anual"
-                }
-                
-                filas_indicators = ""
-                for k, name in indicadores_dict.items():
-                    if k in params:
-                        # Obtenemos el valor promedio anual o el acumulado reportado
-                        val = params[k].get('ann', params[k].get('avg', list(params[k].values())[0]))
-                        # Si es numérico, lo formateamos a 1 decimal
-                        val_str = f"{val:.1f}" if isinstance(val, (int, float)) else str(val)
-                        filas_indicators += f"""
-                        <tr>
-                            <td style="text-align:left; font-weight:bold; padding:10px; background-color:#f8f9fa;">{name}</td>
-                            <td style="font-size:12px; font-weight:bold; color:#1e5a99;">{val_str}</td>
-                        </tr>"""
-                
-                tabla_html = f"""
-                <table class="data-table" style="max-width: 600px; margin: 20px auto;">
-                    <thead>
-                        <tr>
-                            <th class="azul" style="padding:10px; text-align:left;">Indicador Climático Sostenible</th>
-                            <th class="azul" style="padding:10px; width:150px;">Valor Registrado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filas_indicators}
-                    </tbody>
-                </table>"""
-                
-                fuente = "Fuente de datos: Reporte de Aplicación e Indicadores Climáticos Oficiales de NASA POWER (2001-2024)."
-                
+                if res.status_code == 200 and len(res.text) > 100:
+                    html_data = res.text
+                    st.success("¡Reporte HTML Oficial de la NASA descargado con éxito!")
+                    
+                    # 1. Se incrusta visualmente el HTML de la NASA dentro de la aplicación
+                    components.html(html_data, height=600, scrolling=True)
+                    
+                    # 2. Se habilita el botón de descarga del archivo puro
+                    st.download_button(
+                        label="📥 Descargar Reporte en formato HTML (Original de NASA)", 
+                        data=html_data, 
+                        file_name=f"Reporte_NASA_Lat{lat}_Lon{lon}.html", 
+                        mime="text/html"
+                    )
+                else:
+                    st.error(f"❌ ERROR: La NASA no devolvió un reporte HTML válido para estas coordenadas (Status HTTP: {res.status_code}).")
             except Exception as e:
-                st.error("Error al obtener los indicadores oficiales de la NASA. Verifica las coordenadas.")
-                st.stop()
-
-        # Conversiones de altitud comunes para el encabezado
-        try:
-            alt_ft = float(alt_display) * 3.28084
-            alt_ft_str = f"{alt_ft:.1f}"
-        except:
-            alt_ft_str = "0.0"
-            
-        lat_str = format_coord(lat, True)
-        lon_str = format_coord(lon, False)
-        stdp_display = calc_stdp(alt_display)
-
-        # --- ENSAMBLAJE DEL DOCUMENTO PDF PREMIUM ---
-        html_content = f"""
-        <html><head><style>
-            @page {{ size: A4 landscape; margin: 1cm; }}
-            body {{ font-family: 'Times New Roman', serif; font-size: 11px; color: #000; }}
-            .location-header {{ font-size: 16px; font-weight: bold; text-align: center; margin-top: 15px; margin-bottom: 15px; }}
-            table {{ width: 100%; border-collapse: collapse; }}
-            .meta-table {{ font-size: 12px; margin-bottom: 5px; border-bottom: 3px solid #1e5a99; padding-bottom: 5px; }}
-            .meta-table td {{ border: none; text-align: center; padding: 3px; }}
-            .data-table {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); font-size: 10px; }}
-            .data-table th, .data-table td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
-            .data-table th {{ font-weight: bold; font-size: 9px; }}
-            .azul {{ background-color: #1e5a99; color: white; }}
-            .naranja {{ background-color: #e46c0a; color: white; }}
-            .verde {{ background-color: #28a745; color: white; }}
-            .data-table tr:nth-child(even) td {{ background-color: #fdfdfd; }}
-            .footer {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: #555; margin-top: 25px; font-style: italic; }}
-        </style></head>
-        <body>
-            <div class="location-header">CONDICIONES CLIMÁTICAS DE DISEÑO</div>
-            <div style="text-align: center; font-weight: bold; font-size: 13px; margin-bottom: 10px;">{city_display} (WMO: {wmo_display})</div>
-            
-            <table class="meta-table">
-                <tr>
-                    <td>Lat: <strong>{lat_str}</strong></td>
-                    <td>Lon: <strong>{lon_str}</strong></td>
-                    <td>Elev: <strong>{alt_display} m ({alt_ft_str} ft)</strong></td>
-                    <td>StdP: <strong>{stdp_display} kPa</strong></td>
-                    <td>Time zone: <strong>-5.00 (W05)</strong></td>
-                    <td>Period: <strong>{period_display}</strong></td>
-                    <td>WBAN: <strong>99999</strong></td>
-                </tr>
-            </table>
-            
-            {tabla_html}
-            
-            <div class="footer">{fuente}</div>
-        </body></html>"""
-        
-        pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte maestro generado con éxito!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_Clima_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
+                st.error("❌ ERROR CRÍTICO: Fallo de conexión con los servidores de la NASA. Intente nuevamente en unos minutos.")
