@@ -81,3 +81,26 @@ if st.button("Generar Reporte"):
             <h2 style="color: #2e75b6; border-bottom: 3px solid #2e75b6;">CONDICIONES CLIMÁTICAS MENSUALES DE DISEÑO</h2>
             <p><strong>Ubicación:</strong> San Marcos, Perú | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon} | <strong>Elevación:</strong> {alt} m</p>
             <table>
+                <tr>
+                    <th rowspan="2" class="c1">Mes</th>
+                    <th colspan="8" class="c1">Refrigeración (Cooling)</th>
+                    <th colspan="4" class="c2">Calefacción (Heating)</th>
+                    <th colspan="2" class="c3">MCDBR</th>
+                </tr>
+                <tr>
+                    <th colspan="2" class="c1">DB 0.4%</th><th colspan="2" class="c1">MCWB 0.4%</th>
+                    <th colspan="2" class="c1">DB 2.0%</th><th colspan="2" class="c1">MCWB 2.0%</th>
+                    <th colspan="2" class="c2">DB 99.6%</th><th colspan="2" class="c2">DB 99.0%</th>
+                    <th colspan="2" class="c3">Δ°C | Δ°F</th>
+                </tr>
+                <tr>
+                    <td></td><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th><th>°C</th><th>°F</th>
+                </tr>
+                {filas}
+            </table>
+            <p style="font-size: 8px; color: #666;">Generado mediante reanálisis de datos NASA POWER (Año {year}). Procesado metodológicamente para aproximación de condiciones ASHRAE. Altitud nativa de la NASA.</p>
+        </body></html>"""
+        
+        pdf_file = HTML(string=html_content).write_pdf()
+        st.success("¡Reporte generado con el formato exacto!")
+        st.download_button("📥 Descargar Reporte Identico", data=pdf_file, file_name="Reporte_ASHRAE_Identico.pdf", mime="application/pdf")
