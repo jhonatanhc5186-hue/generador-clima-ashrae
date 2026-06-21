@@ -110,8 +110,9 @@ if st.button("Generar Reporte Maestro"):
                     html_limpio = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_limpio)
                     html_limpio = html_limpio.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    html_preview_final = html_limpio.replace("</head>", f"{css_preview}</head>")
-                    html_pdf_final = html_limpio.replace("</head>", f"{css_pdf}</head>")
+                    # Fix: Uso de .format() para evitar errores de parseo por truncamiento en Streamlit/Copy-paste
+                    html_preview_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_preview))
+                    html_pdf_final = html_limpio.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
                     st.success("¡Matriz satelital procesada exitosamente!")
                     with st.expander("👀 Vista Previa del Reporte Oficial", expanded=True):
@@ -120,7 +121,8 @@ if st.button("Generar Reporte Maestro"):
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
                     st.download_button(label="📥 Descargar Reporte (PDF Vertical)", data=pdf_file, file_name=f"Condiciones_Climaticas_{lat}_{lon}.pdf", mime="application/pdf")
                 else: st.error("Error al obtener información satelital de la NASA.")
-            except: st.error("Error de conexión durante el procesamiento.")
+            except Exception as e: 
+                st.error(f"Error de conexión: {e}")
 
     else:
         # =========================================================
@@ -173,7 +175,7 @@ if st.button("Generar Reporte Maestro"):
             m_rows += build_row([("Temperatures,<br>Degree-Days and<br>Degree-Hours<br>(°C)", 8, 1, True), ("DBAvg", 1, 2, False)], lambda x: x['DB'].mean())
             m_rows += build_row([("DBStd", 1, 2, False)], lambda x: x['DB'].std())
             m_rows += build_row([("HDD10.0", 1, 2, False)], lambda x: (10.0 - x['DB']).clip(lower=0).sum() / 24)
-            m_rows += build_row([("HDD18.3", 1, 2, False)], lambda x: (18.3 - x['DB']).clip(lower=0).sum() / 24) # <-- ¡Corregido aquí!
+            m_rows += build_row([("HDD18.3", 1, 2, False)], lambda x: (18.3 - x['DB']).clip(lower=0).sum() / 24)
             m_rows += build_row([("CDD10.0", 1, 2, False)], lambda x: (x['DB'] - 10.0).clip(lower=0).sum() / 24)
             m_rows += build_row([("CDD18.3", 1, 2, False)], lambda x: (x['DB'] - 18.3).clip(lower=0).sum() / 24)
             m_rows += build_row([("CDH23.3", 1, 2, False)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
@@ -333,4 +335,14 @@ if st.button("Generar Reporte Maestro"):
             </body></html>
             """
             
-            html_preview_final = html_base.replace("</head>", f
+            # Reemplazo final seguro usando .format()
+            html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
+            html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
+            
+            st.success("¡Matriz local clonada y renderizada exitosamente!")
+            
+            with st.expander("👀 Vista Previa del Reporte Clonado (Data EPW)", expanded=True):
+                components.html(html_preview_final, height=700, scrolling=True)
+            
+            pdf_file = HTML(string=html_pdf_final).write_pdf()
+            st.download_button(label="📥 Descargar Reporte (PDF Vertical)", data=pdf_file, file_name=f"Condiciones_Climaticas_EPW_{selected_city}.pdf", mime="application/pdf")
