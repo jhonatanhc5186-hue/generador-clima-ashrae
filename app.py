@@ -7,7 +7,7 @@ from weasyprint import HTML
 st.set_page_config(page_title="Generador ASHRAE Pro", layout="wide")
 st.title("🌍 Generador de Reportes Climáticos ASHRAE")
 
-# 1. Función para decodificar archivos locales: PAÍS - DEPARTAMENTO - CIUDAD
+# 1. Función para decodificar archivos locales (SOLO CIUDAD)
 def clean_city_name(filename):
     dept_map = {
         "AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa",
@@ -22,13 +22,27 @@ def clean_city_name(filename):
         if len(parts) >= 3:
             pais = "Perú" if parts[0] == "PER" else parts[0]
             departamento = dept_map.get(parts[1], parts[1])
-            ciudad = parts[2].split('.')[0].replace("-", " ")
+            
+            # Paso 1: Unir las palabras separadas por puntos (Ej: La.Merced -> La Merced)
+            subparts = parts[2].split('.')
+            city_words = []
+            for p in subparts:
+                if p in ['AP', 'Intl'] or p.isdigit():
+                    break
+                city_words.append(p)
+            
+            base_name = " ".join(city_words)
+            
+            # Paso 2: AISLAR SOLO LA CIUDAD (Corta en el guion '-' y descarta la estación)
+            ciudad = base_name.split('-')[0].strip()
+            
             return f"{pais} - {departamento} - {ciudad}"
+            
         return filename.replace(".epw", "")
     except:
         return filename
 
-# 2. Función para obtener el nombre de la ciudad real mediante coordenadas (Geocodificación Inversa)
+# 2. Función para geocodificación inversa
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
@@ -37,9 +51,7 @@ def get_location_name(lat, lon):
         address = response.get('address', {})
         
         pais = address.get('country', 'Perú')
-        # Intentar obtener departamento o región
         departamento = address.get('state', address.get('region', ''))
-        # Intentar obtener la ciudad, pueblo o villa más cercana
         ciudad = address.get('city', address.get('town', address.get('village', address.get('suburb', 'Ubicación Desconocida'))))
         
         if departamento:
@@ -48,7 +60,7 @@ def get_location_name(lat, lon):
     except:
         return f"Coordenadas [Lat: {lat}, Lon: {lon}]"
 
-# 3. Función para listar archivos locales
+# 3. Función para listar archivos
 def get_epw_mapping():
     if not os.path.exists("data"): return {}
     files = [f for f in os.listdir("data") if f.endswith(".epw")]
@@ -96,7 +108,6 @@ if st.button("Generar Reporte Profesional"):
 
         # B) LÓGICA COORDENADAS (NASA + GEOCODIFICACIÓN)
         else:
-            # Obtener el nombre de la ciudad real a partir de las coordenadas ingresadas
             city_display = get_location_name(lat, lon)
             
             url = f"https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=T2M,T2MWET&community=SB&longitude={lon}&latitude={lat}&start={year}0101&end={year}1231&format=JSON"
@@ -149,45 +160,3 @@ if st.button("Generar Reporte Profesional"):
             @page {{ size: A4 landscape; margin: 1cm; }}
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10px; color: #333; }}
             h2 {{ color: #1e5a99; border-bottom: 2px solid #1e5a99; padding-bottom: 5px; margin-bottom: 10px; font-size: 18px; }}
-            p {{ margin: 4px 0; font-size: 11px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; box-shadow: 0px 2px 5px rgba(0,0,0,0.1); }}
-            th, td {{ border: 1px solid #c2c2c2; padding: 6px; text-align: center; }}
-            th {{ font-weight: bold; font-size: 9px; }}
-            .azul {{ background-color: #2e75b6; color: white; border: 1px solid #1e5a99; }}
-            .naranja {{ background-color: #e46c0a; color: white; border: 1px solid #b35508; }}
-            .verde {{ background-color: #28a745; color: white; border: 1px solid #1e7e34; }}
-            .footer {{ font-size: 9px; color: #555; margin-top: 15px; font-style: italic; }}
-            tr:nth-child(even) td {{ background-color: #fdfdfd; }}
-        </style></head>
-        <body>
-            <h2>CONDICIONES CLIMÁTICAS MENSUALES DE DISEÑO</h2>
-            <p><strong>Ubicación:</strong> {city_display} | <strong>Latitud:</strong> {lat} | <strong>Longitud:</strong> {lon} | <strong>Elevación:</strong> {alt_display} m</p>
-            
-            <table>
-                <tr>
-                    <th rowspan="3" class="azul" style="vertical-align: middle;">Mes</th>
-                    <th colspan="8" class="azul">Refrigeración (Cooling)</th>
-                    <th colspan="4" class="naranja">Calefacción (Heating)</th>
-                    <th colspan="2" class="verde">MCDBR</th>
-                </tr>
-                <tr>
-                    <th colspan="2" class="azul">DB 0.4%</th><th colspan="2" class="azul">MCWB 0.4%</th>
-                    <th colspan="2" class="azul">DB 2.0%</th><th colspan="2" class="azul">MCWB 2.0%</th>
-                    <th colspan="2" class="naranja">DB 99.6%</th><th colspan="2" class="naranja">DB 99.0%</th>
-                    <th colspan="2" class="verde">Δ°C | Δ°F</th>
-                </tr>
-                <tr>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="azul">°C</th><th class="azul">°F</th><th class="azul">°C</th><th class="azul">°F</th>
-                    <th class="naranja">°C</th><th class="naranja">°F</th><th class="naranja">°C</th><th class="naranja">°F</th>
-                    <th class="verde">°C</th><th class="verde">°F</th>
-                </tr>
-                {filas}
-            </table>
-            
-            <div class="footer">{fuente}</div>
-        </body></html>"""
-        
-        pdf_file = HTML(string=html_content).write_pdf()
-        st.success("¡Reporte generado con estándar profesional!")
-        st.download_button("📥 Descargar PDF Premium", data=pdf_file, file_name=f"Reporte_{city_display.replace(' - ', '_')}.pdf", mime="application/pdf")
