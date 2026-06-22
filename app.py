@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import os
 import re
+import urllib.parse
 import streamlit.components.v1 as components
 from weasyprint import HTML
 from bs4 import BeautifulSoup
@@ -42,7 +43,7 @@ def format_coord(val, is_lat):
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=5).json()
+        res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10).json()
         address = res.get('address', {})
         pais = address.get('country', 'PERÚ').upper()
         ciudad = address.get('city', address.get('town', address.get('village', address.get('county', 'UBICACIÓN DESCONOCIDA')))).upper()
@@ -138,13 +139,25 @@ with col_map:
         if col_btn.button("Buscar y Ubicar", use_container_width=True):
             if search_text:
                 try:
-                    res = requests.get(f"https://nominatim.openstreetmap.org/search?q={search_text}&format=json&limit=1", headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=5).json()
-                    if res:
-                        st.session_state.lat = float(res[0]['lat'])
-                        st.session_state.lon = float(res[0]['lon'])
-                        st.success(f"Ubicación confirmada: {res[0]['display_name']}")
-                    else: st.error("No se encontró la ubicación.")
-                except: st.error("Error al conectar con el servidor de mapas.")
+                    # Codificamos la URL para evitar errores con espacios o comas
+                    safe_query = urllib.parse.quote(search_text)
+                    url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
+                    
+                    response = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10)
+                    if response.status_code == 200:
+                        res = response.json()
+                        if res:
+                            st.session_state.lat = float(res[0]['lat'])
+                            st.session_state.lon = float(res[0]['lon'])
+                            st.success(f"Ubicación confirmada: {res[0]['display_name']}")
+                        else:
+                            st.error("No se encontró la ubicación. Intente agregar más detalles (Ej. Mollendo, Arequipa, Perú).")
+                    else:
+                        st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
+                except requests.exceptions.Timeout:
+                    st.error("El servidor de mapas tardó demasiado en responder.")
+                except Exception as e:
+                    st.error(f"Error al conectar con el servidor de mapas.")
     
     # MAPA SATELITAL GOOGLE HYBRID (Alta Resolución)
     map_html = f"""
