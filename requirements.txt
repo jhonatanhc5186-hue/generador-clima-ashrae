@@ -1,5 +1,6 @@
 streamlit
 pandas
+numpy
 requests
 weasyprint
-numpy
+beautifulsoup4
