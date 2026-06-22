@@ -42,8 +42,10 @@ def format_coord(val, is_lat):
 
 def get_location_name(lat, lon):
     try:
+        # Se añade un User-Agent de navegador real para evitar bloqueos del servidor en la nube
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10).json()
+        res = requests.get(url, headers=headers, timeout=5).json()
         address = res.get('address', {})
         pais = address.get('country', 'PERÚ').upper()
         ciudad = address.get('city', address.get('town', address.get('village', address.get('county', 'UBICACIÓN DESCONOCIDA')))).upper()
@@ -132,32 +134,40 @@ with col_params:
     btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
-    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE
+    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE (AHORA USA OPEN-METEO ANTI-BLOQUEOS)
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed")
+        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed")
         if col_btn.button("Buscar y Ubicar", use_container_width=True):
             if search_text:
                 try:
-                    # Codificamos la URL para evitar errores con espacios o comas
                     safe_query = urllib.parse.quote(search_text)
-                    url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
+                    # API de Open-Meteo (Mucho más estable para Streamlit Cloud)
+                    url = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
                     
-                    response = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10)
+                    response = requests.get(url, timeout=10)
                     if response.status_code == 200:
                         res = response.json()
-                        if res:
-                            st.session_state.lat = float(res[0]['lat'])
-                            st.session_state.lon = float(res[0]['lon'])
-                            st.success(f"Ubicación confirmada: {res[0]['display_name']}")
+                        if "results" in res and len(res["results"]) > 0:
+                            loc = res["results"][0]
+                            st.session_state.lat = float(loc['latitude'])
+                            st.session_state.lon = float(loc['longitude'])
+                            
+                            # Construir un nombre bonito
+                            parts = [loc.get('name')]
+                            if 'admin1' in loc and loc['admin1'] != loc.get('name'): parts.append(loc['admin1'])
+                            if 'country' in loc: parts.append(loc['country'])
+                            display_name = ", ".join(filter(None, parts))
+                            
+                            st.success(f"Ubicación confirmada: {display_name}")
                         else:
-                            st.error("No se encontró la ubicación. Intente agregar más detalles (Ej. Mollendo, Arequipa, Perú).")
+                            st.error("No se encontró la ubicación. Intente verificar la ortografía.")
                     else:
                         st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
                 except requests.exceptions.Timeout:
                     st.error("El servidor de mapas tardó demasiado en responder.")
                 except Exception as e:
-                    st.error(f"Error al conectar con el servidor de mapas.")
+                    st.error("Error al conectar con el servidor de mapas.")
     
     # MAPA SATELITAL GOOGLE HYBRID (Alta Resolución)
     map_html = f"""
@@ -459,80 +469,4 @@ if btn_generar:
                         <td style="font-weight:bold;">{coldest_month}</td>
                         <td>{apply_u(df['DB'].quantile(0.004), 'T', is_ip):.1f}</td><td>{apply_u(df['DB'].quantile(0.010), 'T', is_ip):.1f}</td>
                         <td>{apply_u(df['DP'].quantile(0.004), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.004)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.004)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DP'].quantile(0.010), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.010)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.010)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WS'].quantile(0.996), 'WS', is_ip):.1f}</td><td>{apply_u(mc(df, 'WS', 'DB', df['WS'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WS'].quantile(0.990), 'WS', is_ip):.1f}</td><td>{apply_u(mc(df, 'WS', 'DB', df['WS'].quantile(0.990)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(mc(df, 'DB', 'WS', df['DB'].quantile(0.004)), 'WS', is_ip):.1f}</td><td>N/A</td>
-                    </tr>
-                </table>
-
-                <table>
-                    <tr><th colspan="17" class="header-blue">Annual Cooling, Dehumidification, and Enthalpy Design Conditions</th></tr>
-                    <tr class="gray-header">
-                        <td rowspan="2">Hottest<br>Month</td><td rowspan="2">Hottest<br>Month<br>DB Range</td>
-                        <td colspan="4">Cooling DB / MCWB ({h_T})</td>
-                        <td colspan="4">Evaporation WB / MCDB ({h_T})</td>
-                        <td colspan="3">Dehumid. DP/MCDB and HR</td>
-                        <td colspan="3">Enthalpy / MCDB ({h_E} / {h_T})</td>
-                        <td rowspan="2">Ext.<br>Max WB<br>({h_T})</td>
-                    </tr>
-                    <tr class="gray-header">
-                        <td colspan="2">0.4%</td><td colspan="2">2%</td>
-                        <td colspan="2">0.4%</td><td colspan="2">2%</td>
-                        <td>0.4% DP</td><td>HR</td><td>MCDB</td>
-                        <td>0.4% Enth</td><td>1% Enth</td><td>MCDB</td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight:bold;">{hottest_month}</td>
-                        <td>{apply_u(df[df['Month'] == hottest_month]['DB'].max() - df[df['Month'] == hottest_month]['DB'].min(), 'TR', is_ip):.1f}</td>
-                        <td>{apply_u(df['DB'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DB', 'WB', df['DB'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DB'].quantile(0.980), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DB', 'WB', df['DB'].quantile(0.980)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'WB', 'DB', df['WB'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].quantile(0.980), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'WB', 'DB', df['WB'].quantile(0.980)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DP'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.996)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['Enth'].quantile(0.996), 'E', is_ip):.1f}</td><td>{apply_u(df['Enth'].quantile(0.990), 'E', is_ip):.1f}</td><td>{apply_u(mc(df, 'Enth', 'DB', df['Enth'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].max(), 'T', is_ip):.1f}</td>
-                    </tr>
-                </table>
-
-                <table>
-                    <tr><th colspan="12" class="header-blue">Extreme Annual Design Conditions</th></tr>
-                    <tr class="gray-header">
-                        <td colspan="3">Extreme Annual WS ({h_WS})</td><td colspan="4">Extreme Annual Temperature ({h_T})</td>
-                        <td colspan="4">n-Year Return Period Values of Extreme Temperature</td>
-                    </tr>
-                    <tr class="gray-header">
-                        <td>1%</td><td>2.5%</td><td>5%</td>
-                        <td>DB Mean Min/Max</td><td>Standard dev</td><td>WB Mean Min/Max</td><td>Standard dev</td>
-                        <td>n=5 years</td><td>n=10 years</td><td>n=20 years</td><td>n=50 years</td>
-                    </tr>
-                    <tr>
-                        <td>{apply_u(df['WS'].quantile(0.990), 'WS', is_ip):.1f}</td><td>{apply_u(df['WS'].quantile(0.975), 'WS', is_ip):.1f}</td><td>{apply_u(df['WS'].quantile(0.950), 'WS', is_ip):.1f}</td>
-                        <td>{apply_u(df['DB'].min(), 'T', is_ip):.1f} / {apply_u(df['DB'].max(), 'T', is_ip):.1f}</td><td>{apply_u(df['DB'].std(), 'TR', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].min(), 'T', is_ip):.1f} / {apply_u(df['WB'].max(), 'T', is_ip):.1f}</td><td>{apply_u(df['WB'].std(), 'TR', is_ip):.1f}</td>
-                        <td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td>
-                    </tr>
-                </table>
-
-                <table>
-                    <tr><th colspan="16" class="header-blue">Monthly Climatic Design Conditions</th></tr>
-                    <tr class="gray-header">
-                        <td colspan="3">Parameters</td>
-                        <td>Annual</td><td>Jan</td><td>Feb</td><td>Mar</td><td>Apr</td><td>May</td><td>Jun</td>
-                        <td>Jul</td><td>Aug</td><td>Sep</td><td>Oct</td><td>Nov</td><td>Dec</td>
-                    </tr>
-                    {m_rows}
-                </table>
-            </body></html>
-            """
-            
-            html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
-            html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
-            
-            st.success("Reporte generado y estructurado exitosamente.")
-            
-            with st.expander("Resultados del Reporte de Diseño", expanded=True):
-                components.html(html_preview_final, height=700, scrolling=True)
-            
-            pdf_file = HTML(string=html_pdf_final).write_pdf()
-            st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_EPW_{selected_city}.pdf", mime="application/pdf")
+                        <td>{apply_u(df['DP'].quantile(0.010), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR',
