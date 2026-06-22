@@ -469,4 +469,80 @@ if btn_generar:
                         <td style="font-weight:bold;">{coldest_month}</td>
                         <td>{apply_u(df['DB'].quantile(0.004), 'T', is_ip):.1f}</td><td>{apply_u(df['DB'].quantile(0.010), 'T', is_ip):.1f}</td>
                         <td>{apply_u(df['DP'].quantile(0.004), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.004)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.004)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DP'].quantile(0.010), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR',
+                        <td>{apply_u(df['DP'].quantile(0.010), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.010)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.010)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['WS'].quantile(0.996), 'WS', is_ip):.1f}</td><td>{apply_u(mc(df, 'WS', 'DB', df['WS'].quantile(0.996)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['WS'].quantile(0.990), 'WS', is_ip):.1f}</td><td>{apply_u(mc(df, 'WS', 'DB', df['WS'].quantile(0.990)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(mc(df, 'DB', 'WS', df['DB'].quantile(0.004)), 'WS', is_ip):.1f}</td><td>N/A</td>
+                    </tr>
+                </table>
+
+                <table>
+                    <tr><th colspan="17" class="header-blue">Annual Cooling, Dehumidification, and Enthalpy Design Conditions</th></tr>
+                    <tr class="gray-header">
+                        <td rowspan="2">Hottest<br>Month</td><td rowspan="2">Hottest<br>Month<br>DB Range</td>
+                        <td colspan="4">Cooling DB / MCWB ({h_T})</td>
+                        <td colspan="4">Evaporation WB / MCDB ({h_T})</td>
+                        <td colspan="3">Dehumid. DP/MCDB and HR</td>
+                        <td colspan="3">Enthalpy / MCDB ({h_E} / {h_T})</td>
+                        <td rowspan="2">Ext.<br>Max WB<br>({h_T})</td>
+                    </tr>
+                    <tr class="gray-header">
+                        <td colspan="2">0.4%</td><td colspan="2">2%</td>
+                        <td colspan="2">0.4%</td><td colspan="2">2%</td>
+                        <td>0.4% DP</td><td>HR</td><td>MCDB</td>
+                        <td>0.4% Enth</td><td>1% Enth</td><td>MCDB</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight:bold;">{hottest_month}</td>
+                        <td>{apply_u(df[df['Month'] == hottest_month]['DB'].max() - df[df['Month'] == hottest_month]['DB'].min(), 'TR', is_ip):.1f}</td>
+                        <td>{apply_u(df['DB'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DB', 'WB', df['DB'].quantile(0.996)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['DB'].quantile(0.980), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DB', 'WB', df['DB'].quantile(0.980)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['WB'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'WB', 'DB', df['WB'].quantile(0.996)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['WB'].quantile(0.980), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'WB', 'DB', df['WB'].quantile(0.980)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['DP'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.996)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.996)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['Enth'].quantile(0.996), 'E', is_ip):.1f}</td><td>{apply_u(df['Enth'].quantile(0.990), 'E', is_ip):.1f}</td><td>{apply_u(mc(df, 'Enth', 'DB', df['Enth'].quantile(0.996)), 'T', is_ip):.1f}</td>
+                        <td>{apply_u(df['WB'].max(), 'T', is_ip):.1f}</td>
+                    </tr>
+                </table>
+
+                <table>
+                    <tr><th colspan="12" class="header-blue">Extreme Annual Design Conditions</th></tr>
+                    <tr class="gray-header">
+                        <td colspan="3">Extreme Annual WS ({h_WS})</td><td colspan="4">Extreme Annual Temperature ({h_T})</td>
+                        <td colspan="4">n-Year Return Period Values of Extreme Temperature</td>
+                    </tr>
+                    <tr class="gray-header">
+                        <td>1%</td><td>2.5%</td><td>5%</td>
+                        <td>DB Mean Min/Max</td><td>Standard dev</td><td>WB Mean Min/Max</td><td>Standard dev</td>
+                        <td>n=5 years</td><td>n=10 years</td><td>n=20 years</td><td>n=50 years</td>
+                    </tr>
+                    <tr>
+                        <td>{apply_u(df['WS'].quantile(0.990), 'WS', is_ip):.1f}</td><td>{apply_u(df['WS'].quantile(0.975), 'WS', is_ip):.1f}</td><td>{apply_u(df['WS'].quantile(0.950), 'WS', is_ip):.1f}</td>
+                        <td>{apply_u(df['DB'].min(), 'T', is_ip):.1f} / {apply_u(df['DB'].max(), 'T', is_ip):.1f}</td><td>{apply_u(df['DB'].std(), 'TR', is_ip):.1f}</td>
+                        <td>{apply_u(df['WB'].min(), 'T', is_ip):.1f} / {apply_u(df['WB'].max(), 'T', is_ip):.1f}</td><td>{apply_u(df['WB'].std(), 'TR', is_ip):.1f}</td>
+                        <td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td>
+                    </tr>
+                </table>
+
+                <table>
+                    <tr><th colspan="16" class="header-blue">Monthly Climatic Design Conditions</th></tr>
+                    <tr class="gray-header">
+                        <td colspan="3">Parameters</td>
+                        <td>Annual</td><td>Jan</td><td>Feb</td><td>Mar</td><td>Apr</td><td>May</td><td>Jun</td>
+                        <td>Jul</td><td>Aug</td><td>Sep</td><td>Oct</td><td>Nov</td><td>Dec</td>
+                    </tr>
+                    {m_rows}
+                </table>
+            </body></html>
+            """
+            
+            html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
+            html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
+            
+            st.success("Reporte generado y estructurado exitosamente.")
+            
+            with st.expander("Resultados del Reporte de Diseño", expanded=True):
+                components.html(html_preview_final, height=700, scrolling=True)
+            
+            pdf_file = HTML(string=html_pdf_final).write_pdf()
+            st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_EPW_{selected_city}.pdf", mime="application/pdf")
