@@ -6,6 +6,7 @@ import os
 import re
 import streamlit.components.v1 as components
 from weasyprint import HTML
+from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Condiciones Climáticas de Diseño", layout="wide", initial_sidebar_state="collapsed")
 
@@ -130,16 +131,16 @@ with col_map:
                     else: st.error("No se encontró la ubicación.")
                 except: st.error("Error al conectar con el servidor de mapas.")
     
-    # MAPA SATELITAL LEAFLET DE ALTA RESOLUCIÓN (Esri World Street Map - Estilo Google Maps / NASA)
+    # MAPA SATELITAL TIPO GOOGLE MAPS HYBRID (Alta Resolución)
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <div style="text-align:right; font-size:12px; color:#555; font-family:Arial; margin-bottom:5px;">Latitud: {st.session_state.lat:.4f} | Longitud: {st.session_state.lon:.4f}</div>
+    <div style="text-align:right; font-size:12px; color:#555; font-family:Arial; margin-bottom:5px;">Latitud: {st.session_state.lat:.4f} | Longitude: {st.session_state.lon:.4f}</div>
     <div id="map" style="height: 480px; width: 100%; border-radius: 6px; border: 1px solid #ccc;"></div>
     <script>
-        var map = L.map('map').setView([{st.session_state.lat}, {st.session_state.lon}], 10);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
-            attribution: 'Tiles &copy; Esri'
+        var map = L.map('map').setView([{st.session_state.lat}, {st.session_state.lon}], 11);
+        L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={{x}}&y={{y}}&z={{z}}', {{
+            attribution: '&copy; Google Maps'
         }}).addTo(map);
         var marker = L.marker([{st.session_state.lat}, {st.session_state.lon}]).addTo(map);
     </script>
@@ -182,7 +183,7 @@ if btn_generar:
         # =========================================================
         # MODO COORDENADAS: EXTRACCIÓN Y CONVERSIÓN NASA NATIVA
         # =========================================================
-        with st.spinner("Procesando matriz de datos satelitales y aplicando conversiones termodinámicas..."):
+        with st.spinner("Procesando matriz de datos satelitales y calculando conversiones estructurales..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=45)
@@ -194,68 +195,72 @@ if btn_generar:
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    # Conversor IP Matemático Interceptando el HTML de NASA
+                    # CONVERSIÓN ESTRUCTURAL A IP MEDIANTE BEAUTIFUL SOUP
                     if is_ip:
-                        html_crudo = html_crudo.replace('(°C)', '(°F)').replace('(m/s)', '(mph)').replace('(mm)', '(in)').replace('W m-2', 'Btu/(h·ft²)').replace('J/kg', 'Btu/lb').replace('g/kg', 'grains/lb')
-                        html_crudo = html_crudo.replace('HDD10.0', 'HDD50.0').replace('HDD18.3', 'HDD65.0')
-                        html_crudo = html_crudo.replace('CDD10.0', 'CDD50.0').replace('CDD18.3', 'CDD65.0')
-                        html_crudo = html_crudo.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
-                        
-                        tablas = html_crudo.split('<table')
-                        for i in range(1, len(tablas)):
-                            filas = tablas[i].split('<tr')
-                            for j in range(1, len(filas)):
-                                if '<th' not in filas[j]:
-                                    celdas = filas[j].split('<td')
-                                    row_text = filas[j]
-                                    for k in range(1, len(celdas)):
-                                        m = re.search(r'^([^>]*>)(.*?)(</td>.*)', celdas[k], re.DOTALL)
-                                        if m:
-                                            prefix, val_str, suffix = m.groups()
-                                            val_str_clean = val_str.strip()
-                                            try:
-                                                val = float(val_str_clean)
-                                                new_val = val
-                                                # Heurística de conversión basada en NASA Table Structure
-                                                if 'Heating DB' in tablas[i]:
-                                                    if k in [2,3,4,6,7,9,11,13]: new_val = apply_u(val, 'T', True)
-                                                    elif k in [5,8]: new_val = apply_u(val, 'HR', True)
-                                                    elif k in [10,12,14]: new_val = apply_u(val, 'WS', True)
-                                                elif 'Cooling DB' in tablas[i]:
-                                                    if k == 2: new_val = apply_u(val, 'TR', True)
-                                                    elif k in [3,4,5,6,7,8,9,10,11,13,16,17]: new_val = apply_u(val, 'T', True)
-                                                    elif k == 12: new_val = apply_u(val, 'HR', True)
-                                                    elif k in [14,15]: new_val = apply_u(val, 'E', True)
-                                                elif 'Extreme Annual' in tablas[i]:
-                                                    if k in [1,2,3]: new_val = apply_u(val, 'WS', True)
-                                                    elif k in [5,6,9,10,11,12,13,14,15,16]: new_val = apply_u(val, 'T', True)
-                                                    elif k in [7,11]: new_val = apply_u(val, 'TR', True)
-                                                elif 'Monthly Climatic' in tablas[i]:
-                                                    if any(x in row_text for x in ['DBAvg','DB/MCWB','WB/MCDB','0.4%','2%','5%','10%','Max WB']):
-                                                        new_val = apply_u(val, 'T', True)
-                                                    elif any(x in row_text for x in ['DBStd','MDBR','MCDBR','MCWBR','HDD','CDD','CDH']):
-                                                        new_val = apply_u(val, 'TR', True)
-                                                    elif 'WSAvg' in row_text:
-                                                        new_val = apply_u(val, 'WS', True)
-                                                    elif 'Prec' in row_text:
-                                                        new_val = apply_u(val, 'P', True)
-                                                    elif any(x in row_text for x in ['Solar','Rad','Ebn','Edn']):
-                                                        new_val = apply_u(val, 'R', True)
-                                                celdas[k] = f"{prefix}{new_val:.1f}{suffix}"
-                                            except ValueError: pass
-                                    filas[j] = '<td'.join(celdas)
-                            tablas[i] = '<tr'.join(filas)
-                        html_crudo = '<table'.join(tablas)
+                        try:
+                            soup = BeautifulSoup(html_crudo, 'html.parser')
+                            
+                            # Actualización global de textos de cabecera
+                            for node in soup.find_all(string=True):
+                                if node.parent.name not in ['style', 'script']:
+                                    new_text = node
+                                    new_text = new_text.replace('(°C)', '(°F)').replace('(m/s)', '(mph)').replace('(mm)', '(in)')
+                                    new_text = new_text.replace('W m-2', 'Btu/(h·ft²)').replace('J/kg', 'Btu/lb').replace('g/kg', 'grains/lb')
+                                    new_text = new_text.replace('HDD10.0', 'HDD50.0').replace('HDD18.3', 'HDD65.0')
+                                    new_text = new_text.replace('CDD10.0', 'CDD50.0').replace('CDD18.3', 'CDD65.0')
+                                    new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
+                                    if new_text != node: node.replace_with(new_text)
+
+                            def convert_val(val_str, vtype):
+                                val_str = val_str.strip()
+                                if not val_str or val_str == 'N/A': return val_str
+                                if '/' in val_str: return " / ".join([convert_val(p, vtype) for p in val_str.split('/')])
+                                try: return f"{apply_u(float(val_str), vtype, True):.1f}"
+                                except: return val_str
+
+                            tables = soup.find_all('table')
+                            
+                            if len(tables) > 1: # T1: Heating
+                                tds = tables[1].find_all('tr')[-1].find_all('td')
+                                convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', None]
+                                for td, conv in zip(tds, convs):
+                                    if conv: td.string = convert_val(td.get_text(), conv)
+                            if len(tables) > 2: # T2: Cooling
+                                tds = tables[2].find_all('tr')[-1].find_all('td')
+                                convs = [None, 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
+                                for td, conv in zip(tds, convs):
+                                    if conv: td.string = convert_val(td.get_text(), conv)
+                            if len(tables) > 3: # T3: Extreme
+                                tds = tables[3].find_all('tr')[-1].find_all('td')
+                                convs = ['WS', 'WS', 'WS', None, 'T', 'TR', None, 'T', 'TR', 'T', 'T', 'T', 'T']
+                                for td, conv in zip(tds, convs):
+                                    if conv: td.string = convert_val(td.get_text(), conv)
+                            if len(tables) > 4: # T4: Monthly
+                                for tr in tables[4].find_all('tr')[3:]:
+                                    tds = tr.find_all('td')
+                                    if len(tds) >= 14:
+                                        p_name = tds[-14].get_text(strip=True)
+                                        vt = None
+                                        if p_name in ['DBAvg', 'DB', 'MCWB', 'WB', 'MCDB']: vt = 'T'
+                                        elif p_name in ['DBStd', 'MDBR', 'MCDBR', 'MCWBR', 'HDD50.0', 'HDD65.0', 'CDD50.0', 'CDD65.0', 'CDH74.0', 'CDH80.0']: vt = 'TR'
+                                        elif p_name == 'WSAvg': vt = 'WS'
+                                        elif 'Prec' in p_name: vt = 'P'
+                                        elif 'Ebn' in p_name or 'Edn' in p_name or 'Rad' in p_name: vt = 'R'
+                                        if vt:
+                                            for td in tds[-13:]: td.string = convert_val(td.get_text(), vt)
+                            
+                            html_crudo = str(soup)
+                        except Exception as e: pass
 
                     loc_name = get_location_name(lat, lon)
-                    pin_html = f"<div class='location-pin'>📍 {loc_name} (WMO: SATELITAL)</div>"
+                    pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
                     html_crudo = html_crudo.replace("<table", f"{pin_html}\n<table", 1)
                     
                     html_preview_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_preview))
                     html_pdf_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
                     st.success("Reporte procesado exitosamente.")
-                    with st.expander("Vista Previa del Documento", expanded=True):
+                    with st.expander("Resultados del Reporte de Diseño", expanded=True):
                         components.html(html_preview_final, height=700, scrolling=True)
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
@@ -375,7 +380,7 @@ if btn_generar:
             m_rows += build_row([("RadStd", 1, 2, False)], lambda x: apply_u(x['GloHorz'].std() * 24 / 1000 if not x.empty else 0, 'R', is_ip))
 
             city_only = selected_city.split('-')[-1].strip().upper()
-            pin_html = f"<div class='location-pin'>📍 {city_only}, PERÚ (WMO: {wmo_display})</div>"
+            pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
 
             html_base = f"""
             <html><head></head>
@@ -487,7 +492,7 @@ if btn_generar:
             
             st.success("Reporte generado y estructurado exitosamente.")
             
-            with st.expander("Vista Previa del Documento", expanded=True):
+            with st.expander("Resultados del Reporte de Diseño", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
             
             pdf_file = HTML(string=html_pdf_final).write_pdf()
