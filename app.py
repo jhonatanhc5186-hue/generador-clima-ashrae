@@ -11,11 +11,38 @@ from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Condiciones Climáticas de Diseño", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 1. ESTADOS DE SESIÓN (MAPA Y COORDENADAS) ---
+# --- 1. ESTADOS DE SESIÓN (MAPA, COORDENADAS Y BUSCADOR) ---
 if 'lat' not in st.session_state:
     st.session_state.lat = -16.3410
 if 'lon' not in st.session_state:
     st.session_state.lon = -71.5830
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
+
+def search_location():
+    # Limpiar mensajes previos
+    st.session_state.pop('search_success', None)
+    st.session_state.pop('search_error', None)
+    
+    query = st.session_state.search_input
+    if query:
+        safe_query = urllib.parse.quote(query)
+        # Se utiliza Open-Meteo: API Geográfica Industrial anti-bloqueos
+        url = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
+        try:
+            res = requests.get(url, timeout=10).json()
+            if "results" in res and res["results"]:
+                loc = res["results"][0]
+                # Actualiza automáticamente las coordenadas en el panel izquierdo
+                st.session_state.lat = float(loc["latitude"])
+                st.session_state.lon = float(loc["longitude"])
+                
+                parts = filter(None, [loc.get('name'), loc.get('admin1'), loc.get('country')])
+                st.session_state.search_success = f"📍 Ubicación confirmada: {', '.join(parts)}"
+            else:
+                st.session_state.search_error = "No se encontró la ubicación. Verifique el nombre (Ej. Mollendo, Arequipa)."
+        except Exception:
+            st.session_state.search_error = "Error al conectar con el servidor geográfico."
 
 # --- 2. FUNCIONES BASE ---
 def clean_city_name(filename):
@@ -43,15 +70,14 @@ def format_coord(val, is_lat):
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        res = requests.get(url, headers=headers, timeout=5).json()
+        res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10).json()
         address = res.get('address', {})
         pais = address.get('country', 'PERÚ').upper()
         ciudad = address.get('city', address.get('town', address.get('village', address.get('county', 'UBICACIÓN DESCONOCIDA')))).upper()
         return f"{ciudad}, {pais}"
     except: return f"LAT: {lat}, LON: {lon}"
 
-# --- 3. MOTOR TERMODINÁMICO Y CONVERSIÓN ---
+# --- 3. MOTOR TERMODINÁMICO Y CONVERSIÓN QUIRÚRGICA ---
 def calc_wb(T, RH):
     return T * np.arctan(0.151977 * (RH + 8.313659)**0.5) + np.arctan(T + RH) - np.arctan(RH - 1.676331) + 0.00391838 * (RH)**1.5 * np.arctan(0.023101 * RH) - 4.686035
 
@@ -64,13 +90,13 @@ def mc(sub, base_col, target_col, t):
 
 def is_missing(v):
     try: return pd.isna(v)
-    except: return False
+    except Exception: return False
 
 def apply_u(v, vtype, is_ip):
     if not is_ip: return v
-    if v in ('N/A', '', None, '-', '---') or is_missing(v): return np.nan
+    if v in ('N/A', '', None, '---', '-') or is_missing(v): return np.nan
     try: v = float(v)
-    except: return v
+    except Exception: return v
     
     if vtype == 'T': return v * 1.8 + 32          
     if vtype == 'TR': return v * 1.8              
@@ -88,9 +114,10 @@ def fmt_u(v, decimals=1):
     try:
         if np.isinf(float(v)): return 'N/A'
         return f"{float(v):.{decimals}f}"
-    except: return str(v)
+    except Exception: return str(v)
 
 def parse_and_convert(text, conv_type, is_ip):
+    """Módulo conversor matemático blindado a prueba de errores"""
     if not text or not text.strip(): return text
     text = text.strip()
     if text.upper() in ("N/A", "NA", "NULL", "---", "-"): return "N/A"
@@ -102,8 +129,13 @@ def parse_and_convert(text, conv_type, is_ip):
             val = float(p)
             new_val = apply_u(val, conv_type, is_ip)
             converted.append(fmt_u(new_val))
-        except: converted.append(p)
+        except Exception: converted.append(p)
     return " / ".join(converted)
+
+def convert_table_cells(cells, convs, is_ip):
+    for i, td in enumerate(cells):
+        if i < len(convs) and convs[i]:
+            td.string = parse_and_convert(td.get_text(strip=True), convs[i], is_ip)
 
 def unit_labels(is_ip):
     return {
@@ -117,7 +149,7 @@ def unit_labels(is_ip):
         "PRES": "inHg" if is_ip else "kPa",
     }
 
-# --- 4. INTERFAZ PROFESIONAL ---
+# --- 4. INTERFAZ PROFESIONAL (CONTROLES IZQUIERDA / MAPA DERECHA) ---
 st.markdown("<h2 style='text-align: center; color: #1f456e; font-family: Arial, sans-serif; font-weight: bold;'>CONDICIONES CLIMÁTICAS DE DISEÑO</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -137,6 +169,7 @@ with col_params:
     if "Satelitales" in modo:
         usar_local = False
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
+        # Sincronizado automáticamente con el buscador de mapas
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
         start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
@@ -154,7 +187,7 @@ with col_params:
                     h_data = f.readline().split(',')
                     st.session_state.lat = float(h_data[6])
                     st.session_state.lon = float(h_data[7])
-            except: pass
+            except Exception: pass
         lat = st.number_input("Latitud", format="%.4f", key="lat", disabled=True)
         lon = st.number_input("Longitud", format="%.4f", key="lon", disabled=True)
         start_y, end_y = 2001, 2024
@@ -163,42 +196,18 @@ with col_params:
     btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
+    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE (Automatizado)
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed")
-        if col_btn.button("Buscar y Ubicar", use_container_width=True):
-            if search_text:
-                safe_query = urllib.parse.quote(search_text.strip())
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-                encontrado = False
-                
-                # Intento 1: Nominatim
-                try:
-                    url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
-                    res = requests.get(url, headers=headers, timeout=5).json()
-                    if res:
-                        st.session_state.lat, st.session_state.lon = float(res[0]['lat']), float(res[0]['lon'])
-                        st.success(f"Ubicación confirmada: {res[0]['display_name']}")
-                        encontrado = True
-                except: pass
-                
-                # Intento 2: Open-Meteo Fallback
-                if not encontrado:
-                    try:
-                        url2 = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
-                        res2 = requests.get(url2, timeout=5).json()
-                        if "results" in res2 and res2["results"]:
-                            loc = res2["results"][0]
-                            st.session_state.lat, st.session_state.lon = float(loc['latitude']), float(loc['longitude'])
-                            name = ", ".join(filter(None, [loc.get('name'), loc.get('admin1'), loc.get('country')]))
-                            st.success(f"Ubicación confirmada: {name}")
-                            encontrado = True
-                    except: pass
-                
-                if not encontrado:
-                    st.error("No se encontró la ubicación o los servidores están ocupados.")
+        # Cuadro de entrada ligado al callback de búsqueda
+        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed", key="search_input")
+        col_btn.button("Buscar y Ubicar", on_click=search_location, use_container_width=True)
+        
+        # Mensajes de estado de búsqueda
+        if 'search_success' in st.session_state: st.success(st.session_state.search_success)
+        if 'search_error' in st.session_state: st.error(st.session_state.search_error)
     
-    # MAPA SATELITAL GOOGLE HYBRID
+    # MAPA SATELITAL GOOGLE HYBRID (Alta Resolución)
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -235,7 +244,12 @@ css_pdf = css_base + "<style> body, td { font-size: 6px !important; } .header-bl
 css_preview = css_base + "<style> body, td { font-size: 11px !important; } .header-blue, th.nasa-blue { font-size: 13px !important; } .title-bar { font-size: 16px !important; } .location-pin { font-size: 15px !important; } table { margin-bottom: 15px !important; } </style>"
 
 units = unit_labels(is_ip)
-h_T, h_P, h_WS, h_R, h_HR, h_E = units["T"], units["P"], units["WS"], units["R"], units["HR"], units["E"]
+h_T = units["T"]
+h_P = units["P"]
+h_WS = units["WS"]
+h_R = units["R"]
+h_HR = units["HR"]
+h_E = units["E"]
 unit_suffix = "IP" if is_ip else "SI"
 
 # --- 6. LÓGICA DE GENERACIÓN ---
@@ -245,22 +259,27 @@ if btn_generar:
         st.stop()
 
     if not usar_local:
-        with st.spinner("Procesando matriz satelital (NASA) y aplicando conversiones estructurales inversas..."):
+        # =========================================================
+        # MODO COORDENADAS: EXTRACCIÓN Y CONVERSIÓN NASA NATIVA
+        # =========================================================
+        with st.spinner("Procesando matriz satelital (NASA) y aplicando conversiones estructurales..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=45)
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
+                    # Filtro de Privacidad Inicial
                     html_crudo = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
+                    # CONVERSIÓN QUIRÚRGICA A IMPERIAL (ESTRUCTURAL)
                     if is_ip:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
-                            # 1. Reemplazo de Textos y Unidades en Encabezados
+                            # 1. Reemplazo de Etiquetas de Unidad
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
@@ -272,7 +291,7 @@ if btn_generar:
                                         new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
                                         if new_text != str(node): node.replace_with(new_text)
 
-                            # 2. Elevación y Presión
+                            # 2. Conversión de Metadatos
                             for td in soup.find_all(['td', 'th', 'span', 'div']):
                                 txt = td.get_text(" ", strip=True)
                                 if txt.startswith("Elevation:"):
@@ -282,58 +301,61 @@ if btn_generar:
                                     m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
                                     if m: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
 
-                            # 3. ALGORITMO DE MAPEO INVERSO (A PRUEBA DE FALLOS DE NASA)
+                            # 3. Mapeo Analítico Fila por Fila (Indestructible)
                             for table in soup.find_all('table'):
                                 header_text = table.get_text(" ", strip=True).upper()
                                 trs = table.find_all('tr')
                                 if not trs: continue
 
-                                if "HEATING DB" in header_text and "HUMIDIFICATION" in header_text:
+                                # Tabla 1: Calefacción
+                                if "HEATING DB" in header_text:
                                     tds = trs[-1].find_all(['td', 'th'])
-                                    convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
-                                    for i, conv in enumerate(reversed(convs)): # Cuenta desde la derecha
-                                        idx = len(tds) - 1 - i
-                                        if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                    if len(tds) == 15:
+                                        convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
+                                        convert_table_cells(tds, convs, True)
 
-                                elif "COOLING DB" in header_text and "EVAPORATION WB" in header_text:
+                                # Tabla 2: Refrigeración
+                                elif "COOLING DB" in header_text:
                                     tds = trs[-1].find_all(['td', 'th'])
-                                    convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
-                                    for i, conv in enumerate(reversed(convs)):
-                                        idx = len(tds) - 1 - i
-                                        if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                    if len(tds) == 17:
+                                        convs = [None, 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
+                                        convert_table_cells(tds, convs, True)
 
+                                # Tabla 3: Valores Extremos
                                 elif "EXTREME ANNUAL DESIGN" in header_text:
                                     for tr in trs[2:]:
                                         tds = tr.find_all(['td', 'th'])
-                                        row_text = tr.get_text(" ", strip=True).upper()
-                                        if "DB" in row_text:
-                                            convs = ['WS', 'WS', 'WS', 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
-                                        else:
-                                            convs = ['T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                        if len(tds) == 16: # Fila Dry Bulb
+                                            convs = ['WS', 'WS', 'WS', None, 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
+                                            convert_table_cells(tds, convs, True)
+                                        elif len(tds) == 13: # Fila Wet Bulb
+                                            convs = [None, 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
+                                            convert_table_cells(tds, convs, True)
 
+                                # Tabla 4: Variables Mensuales Gigantes
                                 elif "MONTHLY CLIMATIC DESIGN" in header_text:
-                                    for tr in trs[3:]:
+                                    for tr in trs[3:]: # Evitar las 3 filas de encabezados
                                         tds = tr.find_all(['td', 'th'])
-                                        if len(tds) < 13: continue 
+                                        if len(tds) < 13: continue # Ignora filas sin data
                                         
-                                        row_text = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
-                                        if not row_text: row_text = tds[0].get_text(strip=True).upper()
+                                        # Recopila todos los textos antes de las 13 celdas de números
+                                        row_label = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
+                                        if not row_label: row_label = tds[0].get_text(strip=True).upper()
                                         
-                                        vtype = 'T'
-                                        if 'PREC' in row_text: vtype = 'P'
-                                        elif 'WS' in row_text or 'WIND' in row_text: vtype = 'WS'
-                                        elif any(x in row_text for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
-                                        elif any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
+                                        vtype = 'T' # Temperatura por defecto
+                                        if 'PREC' in row_label: vtype = 'P'
+                                        elif 'WS' in row_label or 'WIND' in row_label: vtype = 'WS'
+                                        elif any(x in row_label for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
+                                        elif any(x in row_label for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
                                         
-                                        for td in tds[-13:]: # Siempre las últimas 13 (Annual + 12 Meses)
+                                        # Aplica la conversión exclusivamente a las últimas 13 celdas numéricas
+                                        for td in tds[-13:]:
                                             td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
                             
                             html_crudo = str(soup)
                         except Exception as e: pass
 
+                    # Inserción final del Pin
                     loc_name = get_location_name(lat, lon)
                     pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
                     html_crudo = html_crudo.replace("<table", f"{pin_html}\n<table", 1)
@@ -354,14 +376,17 @@ if btn_generar:
                     st.error(f"Error de conectividad (HTTP {respuesta.status_code}).")
             
             except Exception as e: 
-                st.error("Error: Tiempo de espera agotado. Los servidores de la NASA están saturados.")
+                st.error("Error: Tiempo de espera agotado. Los servidores están saturados.")
 
     else:
+        # =========================================================
+        # MODO EPW LOCAL: CONVERSIÓN Y RENDERIZADO
+        # =========================================================
         if not selected_city:
             st.error("Agregue archivos .epw en la carpeta data para usar el modo local.")
             st.stop()
 
-        with st.spinner("Estructurando matriz de datos locales y procesando diseño..."):
+        with st.spinner("Estructurando matriz de datos y procesando diseño..."):
             filename = file_map[selected_city]
             period_display = "TMYx"
             try:
@@ -399,7 +424,8 @@ if btn_generar:
                     weight = "bold" if is_bold else "normal"
                     r += f"<td rowspan='{rs}' colspan='{cs}' style='font-weight:{weight};'>{text}</td>"
                 vals = [func(d) if not d.empty else 0 for d in all_data]
-                for v in vals: r += f"<td>{fmt_u(v)}</td>"
+                for v in vals:
+                    r += f"<td>{fmt_u(v)}</td>"
                 r += "</tr>"
                 return r
 
