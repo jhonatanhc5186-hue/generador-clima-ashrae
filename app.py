@@ -11,11 +11,38 @@ from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Condiciones Climáticas de Diseño", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 1. ESTADOS DE SESIÓN (MAPA Y COORDENADAS) ---
+# --- 1. ESTADOS DE SESIÓN (MAPA, COORDENADAS Y BUSCADOR) ---
 if 'lat' not in st.session_state:
     st.session_state.lat = -16.3410
 if 'lon' not in st.session_state:
     st.session_state.lon = -71.5830
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
+
+def search_location():
+    # Limpiar mensajes previos
+    st.session_state.pop('search_success', None)
+    st.session_state.pop('search_error', None)
+    
+    query = st.session_state.search_input
+    if query:
+        safe_query = urllib.parse.quote(query)
+        # Se utiliza Open-Meteo: API Geográfica Industrial anti-bloqueos
+        url = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
+        try:
+            res = requests.get(url, timeout=10).json()
+            if "results" in res and res["results"]:
+                loc = res["results"][0]
+                # Actualiza automáticamente las coordenadas en el panel izquierdo
+                st.session_state.lat = float(loc["latitude"])
+                st.session_state.lon = float(loc["longitude"])
+                
+                parts = filter(None, [loc.get('name'), loc.get('admin1'), loc.get('country')])
+                st.session_state.search_success = f"📍 Ubicación confirmada: {', '.join(parts)}"
+            else:
+                st.session_state.search_error = "No se encontró la ubicación. Verifique el nombre (Ej. Mollendo, Arequipa)."
+        except Exception:
+            st.session_state.search_error = "Error al conectar con el servidor geográfico."
 
 # --- 2. FUNCIONES BASE ---
 def clean_city_name(filename):
@@ -50,7 +77,7 @@ def get_location_name(lat, lon):
         return f"{ciudad}, {pais}"
     except: return f"LAT: {lat}, LON: {lon}"
 
-# --- 3. MOTOR TERMODINÁMICO Y CONVERSIÓN ---
+# --- 3. MOTOR TERMODINÁMICO Y CONVERSIÓN QUIRÚRGICA ---
 def calc_wb(T, RH):
     return T * np.arctan(0.151977 * (RH + 8.313659)**0.5) + np.arctan(T + RH) - np.arctan(RH - 1.676331) + 0.00391838 * (RH)**1.5 * np.arctan(0.023101 * RH) - 4.686035
 
@@ -67,9 +94,10 @@ def is_missing(v):
 
 def apply_u(v, vtype, is_ip):
     if not is_ip: return v
-    if v in ('N/A', '', None) or is_missing(v): return np.nan
+    if v in ('N/A', '', None, '---', '-') or is_missing(v): return np.nan
     try: v = float(v)
     except Exception: return v
+    
     if vtype == 'T': return v * 1.8 + 32          
     if vtype == 'TR': return v * 1.8              
     if vtype == 'P': return v / 25.4              
@@ -89,7 +117,7 @@ def fmt_u(v, decimals=1):
     except Exception: return str(v)
 
 def parse_and_convert(text, conv_type, is_ip):
-    """Módulo conversor quirúrgico celda por celda"""
+    """Módulo conversor matemático blindado a prueba de errores"""
     if not text or not text.strip(): return text
     text = text.strip()
     if text.upper() in ("N/A", "NA", "NULL", "---", "-"): return "N/A"
@@ -141,6 +169,7 @@ with col_params:
     if "Satelitales" in modo:
         usar_local = False
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
+        # Sincronizado automáticamente con el buscador de mapas
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
         start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
@@ -167,31 +196,16 @@ with col_params:
     btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
-    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE
+    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE (Automatizado)
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed")
-        if col_btn.button("Buscar y Ubicar", use_container_width=True):
-            if search_text:
-                try:
-                    safe_query = urllib.parse.quote(search_text)
-                    url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
-                    
-                    response = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10)
-                    if response.status_code == 200:
-                        res = response.json()
-                        if res:
-                            st.session_state.lat = float(res[0]['lat'])
-                            st.session_state.lon = float(res[0]['lon'])
-                            st.success(f"Ubicación confirmada: {res[0]['display_name']}")
-                        else:
-                            st.error("No se encontró la ubicación. Intente agregar más detalles (Ej. Mollendo, Arequipa, Perú).")
-                    else:
-                        st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
-                except requests.exceptions.Timeout:
-                    st.error("El servidor de mapas tardó demasiado en responder.")
-                except Exception as e:
-                    st.error(f"Error al conectar con el servidor de mapas.")
+        # Cuadro de entrada ligado al callback de búsqueda
+        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed", key="search_input")
+        col_btn.button("Buscar y Ubicar", on_click=search_location, use_container_width=True)
+        
+        # Mensajes de estado de búsqueda
+        if 'search_success' in st.session_state: st.success(st.session_state.search_success)
+        if 'search_error' in st.session_state: st.error(st.session_state.search_error)
     
     # MAPA SATELITAL GOOGLE HYBRID (Alta Resolución)
     map_html = f"""
@@ -260,12 +274,12 @@ if btn_generar:
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    # CONVERSIÓN QUIRÚRGICA A IMPERIAL MEDIANTE MÁQUINA DE ESTADOS (BEAUTIFUL SOUP)
+                    # CONVERSIÓN QUIRÚRGICA A IMPERIAL (ESTRUCTURAL)
                     if is_ip:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
-                            # 1. Reemplazo Global de Textos y Unidades en Encabezados
+                            # 1. Reemplazo de Etiquetas de Unidad
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
@@ -277,71 +291,64 @@ if btn_generar:
                                         new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
                                         if new_text != str(node): node.replace_with(new_text)
 
-                            # 2. Conversión de Metadatos (Elevación y Presión)
+                            # 2. Conversión de Metadatos
                             for td in soup.find_all(['td', 'th', 'span', 'div']):
                                 txt = td.get_text(" ", strip=True)
                                 if txt.startswith("Elevation:"):
                                     m = re.search(r"Elevation:\s*([-+]?\d+(?:\.\d+)?)", txt)
-                                    if m:
-                                        td.string = f"Elevation: {fmt_u(apply_u(float(m.group(1)), 'ALT', True), 1)} {units['ALT']}"
+                                    if m: td.string = f"Elevation: {fmt_u(apply_u(float(m.group(1)), 'ALT', True), 1)} {units['ALT']}"
                                 elif txt.startswith("StdPres:"):
                                     m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
-                                    if m:
-                                        td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
+                                    if m: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
 
-                            # 3. Conversión Numérica de Celdas (Algoritmo Lineal)
-                            state = None
-                            for tr in soup.find_all('tr'):
-                                row_text = tr.get_text(" ", strip=True).upper()
-                                
-                                # Detectamos en qué tabla estamos según el HTML de NASA
-                                if "ANNUAL HEATING AND HUMIDIFICATION" in row_text:
-                                    state = "HEATING"
-                                elif "ANNUAL COOLING, DEHUMIDIFICATION" in row_text:
-                                    state = "COOLING"
-                                elif "EXTREME ANNUAL DESIGN" in row_text:
-                                    state = "EXTREME"
-                                elif "MONTHLY CLIMATIC DESIGN" in row_text:
-                                    state = "MONTHLY"
-                                    
-                                tds = tr.find_all(['td', 'th'])
-                                if not tds: continue
-                                
-                                if state == "HEATING":
-                                    if len(tds) >= 14 and "COLDEST" not in row_text:
+                            # 3. Mapeo Analítico Fila por Fila (Indestructible)
+                            for table in soup.find_all('table'):
+                                header_text = table.get_text(" ", strip=True).upper()
+                                trs = table.find_all('tr')
+                                if not trs: continue
+
+                                # Tabla 1: Calefacción
+                                if "HEATING DB" in header_text:
+                                    tds = trs[-1].find_all(['td', 'th'])
+                                    if len(tds) == 15:
                                         convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
                                         convert_table_cells(tds, convs, True)
-                                        state = None # Evita falsos positivos en otras filas
-                                        
-                                elif state == "COOLING":
-                                    if len(tds) >= 16 and "HOTTEST" not in row_text:
+
+                                # Tabla 2: Refrigeración
+                                elif "COOLING DB" in header_text:
+                                    tds = trs[-1].find_all(['td', 'th'])
+                                    if len(tds) == 17:
                                         convs = [None, 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
                                         convert_table_cells(tds, convs, True)
-                                        state = None
-                                        
-                                elif state == "EXTREME":
-                                    if len(tds) >= 12 and "MEAN" not in row_text and "YEARS" not in row_text:
-                                        # Identifica si es la fila del Bulbo Seco (DB) o Húmedo (WB)
-                                        if len(tds) >= 15: 
+
+                                # Tabla 3: Valores Extremos
+                                elif "EXTREME ANNUAL DESIGN" in header_text:
+                                    for tr in trs[2:]:
+                                        tds = tr.find_all(['td', 'th'])
+                                        if len(tds) == 16: # Fila Dry Bulb
                                             convs = ['WS', 'WS', 'WS', None, 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                             convert_table_cells(tds, convs, True)
-                                        else:
+                                        elif len(tds) == 13: # Fila Wet Bulb
                                             convs = [None, 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                             convert_table_cells(tds, convs, True)
-                                            
-                                elif state == "MONTHLY":
-                                    if "JAN" in row_text and "FEB" in row_text: continue # Omitir fila de meses
-                                    
-                                    vtype = None
-                                    # Mapeo Absoluto de las variables mensuales
-                                    if any(x in row_text for x in ['DBAVG', '0.4%', '1%', '2%', '5%', '10%', 'DB', 'WB', 'MCWB', 'MCDB', 'MAX WB']): vtype = 'T'
-                                    if any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
-                                    if 'WSAVG' in row_text or 'WIND' in row_text: vtype = 'WS'
-                                    if 'PREC' in row_text: vtype = 'P'
-                                    if any(x in row_text for x in ['SOLAR', 'RAD', 'EBN', 'EDN']): vtype = 'R'
-                                    
-                                    if vtype and len(tds) >= 13:
-                                        # Solo convertimos estrictamente las últimas 13 celdas (Anual + 12 Meses)
+
+                                # Tabla 4: Variables Mensuales Gigantes
+                                elif "MONTHLY CLIMATIC DESIGN" in header_text:
+                                    for tr in trs[3:]: # Evitar las 3 filas de encabezados
+                                        tds = tr.find_all(['td', 'th'])
+                                        if len(tds) < 13: continue # Ignora filas sin data
+                                        
+                                        # Recopila todos los textos antes de las 13 celdas de números
+                                        row_label = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
+                                        if not row_label: row_label = tds[0].get_text(strip=True).upper()
+                                        
+                                        vtype = 'T' # Temperatura por defecto
+                                        if 'PREC' in row_label: vtype = 'P'
+                                        elif 'WS' in row_label or 'WIND' in row_label: vtype = 'WS'
+                                        elif any(x in row_label for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
+                                        elif any(x in row_label for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
+                                        
+                                        # Aplica la conversión exclusivamente a las últimas 13 celdas numéricas
                                         for td in tds[-13:]:
                                             td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
                             
@@ -356,7 +363,7 @@ if btn_generar:
                     html_preview_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_preview))
                     html_pdf_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
-                    st.success("Reporte satelital procesado y convertido a Sistema Imperial exitosamente.")
+                    st.success(f"Reporte procesado exitosamente en formato {unit_sys}.")
                     with st.expander("Resultados del Reporte de Diseño", expanded=True):
                         components.html(html_preview_final, height=700, scrolling=True)
                     
@@ -369,7 +376,7 @@ if btn_generar:
                     st.error(f"Error de conectividad (HTTP {respuesta.status_code}).")
             
             except Exception as e: 
-                st.error("Error: Tiempo de espera agotado.")
+                st.error("Error: Tiempo de espera agotado. Los servidores están saturados.")
 
     else:
         # =========================================================
@@ -591,7 +598,7 @@ if btn_generar:
             html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
             html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
             
-            st.success("Reporte generado y estructurado exitosamente.")
+            st.success(f"Reporte procesado exitosamente en formato {unit_sys}.")
             
             with st.expander("Resultados del Reporte de Diseño", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
