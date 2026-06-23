@@ -23,13 +23,15 @@ if 'pagado' not in st.session_state:
 if "pago" in st.query_params and st.query_params["pago"] == "exitoso":
     st.session_state.pagado = True
 
-# --- 2. CALLBACK DE BÚSQUEDA GEOGRÁFICA (Doble Motor) ---
+# --- 2. CALLBACK DE BÚSQUEDA GEOGRÁFICA (Doble Motor Blindado) ---
 def execute_search():
     st.session_state.pop('search_success', None)
     st.session_state.pop('search_error', None)
     query = st.session_state.get('search_input', '')
     if query:
-        safe_query = urllib.parse.quote(query.strip())
+        # Prevenimos errores si el usuario no usa espacios después de la coma (Ej. PISCO,PERU)
+        clean_query = query.replace(',', ', ').strip()
+        safe_query = urllib.parse.quote(clean_query)
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         encontrado = False
         
@@ -59,7 +61,7 @@ def execute_search():
             except: pass
         
         if not encontrado:
-            st.session_state.search_error = "No se encontró la ubicación o los servidores están ocupados."
+            st.session_state.search_error = "No se encontró la ubicación. Verifique la ortografía o agregue el país."
 
 # --- 3. FUNCIONES BASE ---
 def clean_city_name(filename):
@@ -95,7 +97,7 @@ def get_location_name(lat, lon):
         return f"{ciudad}, {pais}"
     except: return f"LAT: {lat}, LON: {lon}"
 
-# --- 4. MOTOR TERMODINÁMICO Y CONVERSIÓN ---
+# --- 4. MOTOR TERMODINÁMICO Y CONVERSIÓN QUIRÚRGICA ---
 def calc_wb(T, RH):
     return T * np.arctan(0.151977 * (RH + 8.313659)**0.5) + np.arctan(T + RH) - np.arctan(RH - 1.676331) + 0.00391838 * (RH)**1.5 * np.arctan(0.023101 * RH) - 4.686035
 
@@ -186,7 +188,7 @@ with col_params:
     if "Satelitales" in modo:
         usar_local = False
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
-        # Campos de Latitud y Longitud sincronizados
+        # Campos sincronizados automáticamente
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
         start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
@@ -211,13 +213,14 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # --- SISTEMA DE PAYWALL ---
+    # --- SISTEMA DE PAYWALL (PAGO REAL) ---
     btn_generar = False
     
     if not st.session_state.pagado:
         st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
         
-        link_pago_real = "https://buy.stripe.com/test_tupago" 
+        # AQUÍ DEBES PONER TU LINK DE STRIPE O MERCADO PAGO REAL
+        link_pago_real = "https://buy.stripe.com/tu_link_de_pago" 
         
         col_pay1, col_pay2 = st.columns(2)
         col_pay1.markdown(
@@ -229,6 +232,7 @@ with col_params:
             unsafe_allow_html=True
         )
         
+        # Botón para uso del desarrollador (puedes borrarlo en producción)
         if col_pay2.button("Simular Pago ✔️"):
             st.session_state.pagado = True
             st.rerun()
@@ -240,9 +244,7 @@ with col_map:
     # BUSCADOR GEOGRÁFICO CON CALLBACK (SÓLO SATÉLITE)
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        # Text input vinculado a 'search_input'
-        col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed", key="search_input")
-        # El botón ejecuta la función de búsqueda antes de re-renderizar la UI
+        col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed", key="search_input")
         col_btn.button("Buscar y Ubicar", on_click=execute_search, use_container_width=True)
         
         if 'search_success' in st.session_state: st.success(st.session_state.search_success)
@@ -295,7 +297,7 @@ if btn_generar:
         st.stop()
 
     if not usar_local:
-        with st.spinner("Procesando matriz satelital (NASA) y aplicando conversiones estructurales inversas..."):
+        with st.spinner("Procesando matriz satelital (NASA) y mapeando conversiones a IP..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=45)
@@ -310,6 +312,7 @@ if btn_generar:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
+                            # 1. Reemplazo de Unidades en Textos
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
@@ -321,6 +324,7 @@ if btn_generar:
                                         new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
                                         if new_text != str(node): node.replace_with(new_text)
 
+                            # 2. Metadatos (Elevación / Presión)
                             for td in soup.find_all(['td', 'th', 'span', 'div']):
                                 txt = td.get_text(" ", strip=True)
                                 if txt.startswith("Elevation:"):
@@ -330,29 +334,35 @@ if btn_generar:
                                     m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
                                     if m: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
 
+                            # 3. ALGORITMO ABSOLUTO (Reconocimiento por Contenido, No por Títulos de Fila)
                             for table in soup.find_all('table'):
-                                header_text = table.get_text(" ", strip=True).upper()
+                                table_text = table.get_text(" ", strip=True).upper()
                                 trs = table.find_all('tr')
                                 if not trs: continue
 
-                                if "HEATING DB" in header_text and "HUMIDIFICATION" in header_text:
+                                # T1: Heating
+                                if "HEATING DB" in table_text and "HUMIDIFICATION" in table_text:
                                     tds = trs[-1].find_all(['td', 'th'])
                                     convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
                                     for i, conv in enumerate(reversed(convs)): 
                                         idx = len(tds) - 1 - i
                                         if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
 
-                                elif "COOLING DB" in header_text and "EVAPORATION WB" in header_text:
+                                # T2: Cooling
+                                elif "COOLING DB" in table_text and "EVAPORATION" in table_text:
                                     tds = trs[-1].find_all(['td', 'th'])
                                     convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
                                     for i, conv in enumerate(reversed(convs)):
                                         idx = len(tds) - 1 - i
                                         if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
 
-                                elif "EXTREME ANNUAL DESIGN" in header_text:
-                                    for tr in trs[2:]:
-                                        tds = tr.find_all(['td', 'th'])
+                                # T3: Extreme
+                                elif "EXTREME ANNUAL" in table_text:
+                                    for tr in trs:
                                         row_text = tr.get_text(" ", strip=True).upper()
+                                        if "MEAN" in row_text or "YEARS" in row_text: continue
+                                        tds = tr.find_all(['td', 'th'])
+                                        if len(tds) < 10: continue
                                         if "DB" in row_text:
                                             convs = ['WS', 'WS', 'WS', 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                         else:
@@ -361,13 +371,17 @@ if btn_generar:
                                             idx = len(tds) - 1 - i
                                             if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
 
-                                elif "MONTHLY CLIMATIC DESIGN" in header_text:
-                                    for tr in trs[3:]:
+                                # T4: Monthly Climatic (Detectado porque los meses están en el encabezado de la tabla)
+                                elif "JAN" in table_text and "FEB" in table_text and "DEC" in table_text:
+                                    for tr in trs:
                                         tds = tr.find_all(['td', 'th'])
                                         if len(tds) < 13: continue 
                                         
                                         row_text = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
                                         if not row_text: row_text = tds[0].get_text(strip=True).upper()
+                                        
+                                        # Omitimos la fila de los encabezados (Meses)
+                                        if "JAN" in row_text or "FEB" in row_text or "ANNUAL" == row_text.strip(): continue
                                         
                                         vtype = 'T'
                                         if 'PREC' in row_text: vtype = 'P'
@@ -375,6 +389,7 @@ if btn_generar:
                                         elif any(x in row_text for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
                                         elif any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
                                         
+                                        # Aplicamos conversión SÓLO a las últimas 13 celdas (Anual + Ene a Dic)
                                         for td in tds[-13:]:
                                             td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
                             
@@ -401,7 +416,7 @@ if btn_generar:
                     st.error(f"Error de conectividad (HTTP {respuesta.status_code}).")
             
             except Exception as e: 
-                st.error("Error: Tiempo de espera agotado. Servidor NASA ocupado.")
+                st.error("Error: Tiempo de espera agotado. Servidores NASA ocupados.")
 
     else:
         if not selected_city:
