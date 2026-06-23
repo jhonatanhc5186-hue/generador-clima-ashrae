@@ -155,26 +155,25 @@ with col_params:
     
     # --- SISTEMA DE PAYWALL (PAGO REAL EN STRIPE) ---
     btn_generar = False
-    if not st.session_state.pagaged:
-        if not st.session_state.pagado:
-            st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
-            
-            # REEMPLAZAR CON TU LINK REAL DE COBRO DE STRIPE
-            link_pago_real = "https://buy.stripe.com/tu_link_real_aqui" 
-            
-            col_pay1, col_pay2 = st.columns(2)
-            col_pay1.markdown(
-                f"""
-                <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #0070ba; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
-                    💳 Pagar Real (Stripe)
-                </a>
-                """, 
-                unsafe_allow_html=True
-            )
-            
-            if col_pay2.button("Simular Pago ✔️"):
-                st.session_state.pagado = True
-                st.rerun()
+    if not st.session_state.pagado:
+        st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
+        
+        # REEMPLAZAR CON TU LINK REAL DE COBRO DE STRIPE
+        link_pago_real = "https://buy.stripe.com/tu_link_real_aqui" 
+        
+        col_pay1, col_pay2 = st.columns(2)
+        col_pay1.markdown(
+            f"""
+            <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #0070ba; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
+                💳 Pagar Real (Stripe)
+            </a>
+            """, 
+            unsafe_allow_html=True
+        )
+        
+        if col_pay2.button("Simular Pago ✔️"):
+            st.session_state.pagado = True
+            st.rerun()
     else:
         st.success("✅ Pago validado exitosamente. Acceso desbloqueado.")
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
