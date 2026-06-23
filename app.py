@@ -70,12 +70,12 @@ def apply_u(v, vtype, is_ip):
     if v in ('N/A', '', None) or is_missing(v): return np.nan
     try: v = float(v)
     except Exception: return v
-    if vtype == 'T': return v * 1.8 + 32         
-    if vtype == 'TR': return v * 1.8               
+    if vtype == 'T': return v * 1.8 + 32          
+    if vtype == 'TR': return v * 1.8              
     if vtype == 'P': return v / 25.4              
-    if vtype == 'WS': return v * 2.23694           
+    if vtype == 'WS': return v * 2.23694          
     if vtype == 'E': return v * 0.429923          
-    if vtype == 'HR': return v * 7.0               
+    if vtype == 'HR': return v * 7.0              
     if vtype == 'R': return v * 0.316998          
     if vtype == 'ALT': return v * 3.28084           
     if vtype == 'PRES': return v * 0.295300          
@@ -92,7 +92,7 @@ def parse_and_convert(text, conv_type, is_ip):
     """Módulo conversor quirúrgico celda por celda"""
     if not text or not text.strip(): return text
     text = text.strip()
-    if text.upper() in ("N/A", "NA", "NULL"): return "N/A"
+    if text.upper() in ("N/A", "NA", "NULL", "---", "-"): return "N/A"
     parts = re.split(r'\s*/\s*', text)
     converted = []
     for p in parts:
@@ -143,8 +143,8 @@ with col_params:
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
-        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) # Default 2004
-        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)    # Default 2024
+        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
+        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)    
     else:
         usar_local = True
         if not file_map:
@@ -174,7 +174,6 @@ with col_map:
         if col_btn.button("Buscar y Ubicar", use_container_width=True):
             if search_text:
                 try:
-                    # Codificamos la URL para evitar errores con espacios o comas
                     safe_query = urllib.parse.quote(search_text)
                     url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
                     
@@ -261,12 +260,12 @@ if btn_generar:
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    # CONVERSIÓN QUIRÚRGICA A IMPERIAL MEDIANTE BEAUTIFUL SOUP
+                    # CONVERSIÓN QUIRÚRGICA A IMPERIAL MEDIANTE MÁQUINA DE ESTADOS (BEAUTIFUL SOUP)
                     if is_ip:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
-                            # 1. Reemplazo de Etiquetas (Textos)
+                            # 1. Reemplazo Global de Textos y Unidades en Encabezados
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
@@ -290,54 +289,61 @@ if btn_generar:
                                     if m:
                                         td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
 
-                            # 3. Conversión de Celdas de las Tablas (Reconocimiento de Estructura)
-                            for table in soup.find_all('table'):
-                                header_text = table.get_text(" ", strip=True).upper()
-                                trs = table.find_all('tr')
-                                if not trs: continue
-
-                                # T1: Annual Heating
-                                if "HEATING DB" in header_text and "HUMIDIFICATION" in header_text:
-                                    tds = trs[-1].find_all(['td', 'th'])
-                                    convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
-                                    convert_table_cells(tds, convs, True)
-
-                                # T2: Annual Cooling
-                                elif "COOLING DB" in header_text and "EVAPORATION WB" in header_text:
-                                    tds = trs[-1].find_all(['td', 'th'])
-                                    if len(tds) >= 17:
+                            # 3. Conversión Numérica de Celdas (Algoritmo Lineal)
+                            state = None
+                            for tr in soup.find_all('tr'):
+                                row_text = tr.get_text(" ", strip=True).upper()
+                                
+                                # Detectamos en qué tabla estamos según el HTML de NASA
+                                if "ANNUAL HEATING AND HUMIDIFICATION" in row_text:
+                                    state = "HEATING"
+                                elif "ANNUAL COOLING, DEHUMIDIFICATION" in row_text:
+                                    state = "COOLING"
+                                elif "EXTREME ANNUAL DESIGN" in row_text:
+                                    state = "EXTREME"
+                                elif "MONTHLY CLIMATIC DESIGN" in row_text:
+                                    state = "MONTHLY"
+                                    
+                                tds = tr.find_all(['td', 'th'])
+                                if not tds: continue
+                                
+                                if state == "HEATING":
+                                    if len(tds) >= 14 and "COLDEST" not in row_text:
+                                        convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
+                                        convert_table_cells(tds, convs, True)
+                                        state = None # Evita falsos positivos en otras filas
+                                        
+                                elif state == "COOLING":
+                                    if len(tds) >= 16 and "HOTTEST" not in row_text:
                                         convs = [None, 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
                                         convert_table_cells(tds, convs, True)
-
-                                # T3: Extreme Annual
-                                elif "EXTREME ANNUAL" in header_text:
-                                    for tr in trs[2:]:
-                                        tds = tr.find_all(['td', 'th'])
-                                        if len(tds) >= 15: # Fila Dry Bulb
+                                        state = None
+                                        
+                                elif state == "EXTREME":
+                                    if len(tds) >= 12 and "MEAN" not in row_text and "YEARS" not in row_text:
+                                        # Identifica si es la fila del Bulbo Seco (DB) o Húmedo (WB)
+                                        if len(tds) >= 15: 
                                             convs = ['WS', 'WS', 'WS', None, 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                             convert_table_cells(tds, convs, True)
-                                        elif len(tds) >= 12 and len(tds) < 15: # Fila Wet Bulb (3 celdas combinadas)
+                                        else:
                                             convs = [None, 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                             convert_table_cells(tds, convs, True)
-
-                                # T4: Monthly Climatic
-                                elif "JAN" in header_text and "FEB" in header_text and "DEC" in header_text:
-                                    for tr in trs:
-                                        tds = tr.find_all(['td', 'th'])
-                                        if len(tds) < 13: continue
-                                        row_text = tr.get_text(" ", strip=True).upper()
-                                        vtype = None
-                                        
-                                        if any(x in row_text for x in ['DBAVG', '0.4%', '1%', '2%', '5%', '10%', 'DB', 'WB', 'MCWB', 'MCDB', 'MAX WB']): vtype = 'T'
-                                        if any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
-                                        if 'WSAVG' in row_text or 'WIND' in row_text: vtype = 'WS'
-                                        if 'PREC' in row_text: vtype = 'P'
-                                        if any(x in row_text for x in ['SOLAR', 'RAD', 'EBN', 'EDN']): vtype = 'R'
-                                        
-                                        if vtype:
-                                            # Modificar solo los últimos 13 valores (Annual + Meses)
-                                            for td in tds[-13:]:
-                                                td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
+                                            
+                                elif state == "MONTHLY":
+                                    if "JAN" in row_text and "FEB" in row_text: continue # Omitir fila de meses
+                                    
+                                    vtype = None
+                                    # Mapeo Absoluto de las variables mensuales
+                                    if any(x in row_text for x in ['DBAVG', '0.4%', '1%', '2%', '5%', '10%', 'DB', 'WB', 'MCWB', 'MCDB', 'MAX WB']): vtype = 'T'
+                                    if any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
+                                    if 'WSAVG' in row_text or 'WIND' in row_text: vtype = 'WS'
+                                    if 'PREC' in row_text: vtype = 'P'
+                                    if any(x in row_text for x in ['SOLAR', 'RAD', 'EBN', 'EDN']): vtype = 'R'
+                                    
+                                    if vtype and len(tds) >= 13:
+                                        # Solo convertimos estrictamente las últimas 13 celdas (Anual + 12 Meses)
+                                        for td in tds[-13:]:
+                                            td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
                             
                             html_crudo = str(soup)
                         except Exception as e: pass
@@ -350,7 +356,7 @@ if btn_generar:
                     html_preview_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_preview))
                     html_pdf_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
-                    st.success("Reporte satelital procesado y convertido exitosamente.")
+                    st.success("Reporte satelital procesado y convertido a Sistema Imperial exitosamente.")
                     with st.expander("Resultados del Reporte de Diseño", expanded=True):
                         components.html(html_preview_final, height=700, scrolling=True)
                     
