@@ -7,7 +7,6 @@ import re
 import urllib.parse
 import streamlit.components.v1 as components
 from weasyprint import HTML
-from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Condiciones Climáticas de Diseño", layout="wide", initial_sidebar_state="collapsed")
 
@@ -19,7 +18,7 @@ if 'lon' not in st.session_state:
 if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
-# Detectar retorno exitoso desde la pasarela de pago (Stripe/MercadoPago)
+# Detectar retorno exitoso desde la pasarela de pago (Stripe)
 if "pago" in st.query_params and st.query_params["pago"] == "exitoso":
     st.session_state.pagado = True
 
@@ -34,6 +33,7 @@ def execute_search():
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         encontrado = False
         
+        # Motor 1: Nominatim (OpenStreetMap)
         try:
             url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
             res = requests.get(url, headers=headers, timeout=5).json()
@@ -44,6 +44,7 @@ def execute_search():
                 encontrado = True
         except: pass
         
+        # Motor 2: Open-Meteo (Respaldo)
         if not encontrado:
             try:
                 url2 = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
@@ -60,7 +61,7 @@ def execute_search():
         if not encontrado:
             st.session_state.search_error = "No se encontró la ubicación. Verifique la ortografía o agregue el país."
 
-# --- 3. FUNCIONES BASE Y TERMODINÁMICA ---
+# --- 3. FUNCIONES BASE ---
 def clean_city_name(filename):
     dept_map = {"AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa", "AYA": "Ayacucho", "CAJ": "Cajamarca", "CUS": "Cusco", "HUC": "Huánuco", "HUV": "Huancavelica", "ICA": "Ica", "JUN": "Junín", "LAL": "La Libertad", "LAM": "Lambayeque", "LIM": "Lima", "LOR": "Loreto", "MDD": "Madre de Dios", "MOQ": "Moquegua", "PAS": "Pasco", "PIU": "Piura", "PUN": "Puno", "SAM": "San Martín", "TAC": "Tacna", "TUM": "Tumbes", "UCA": "Ucayali"}
     try:
@@ -86,7 +87,7 @@ def format_coord(val, is_lat):
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         res = requests.get(url, headers=headers, timeout=5).json()
         address = res.get('address', {})
         pais = address.get('country', 'PERÚ').upper()
@@ -94,6 +95,7 @@ def get_location_name(lat, lon):
         return f"{ciudad}, {pais}"
     except: return f"LAT: {lat}, LON: {lon}"
 
+# --- 4. MOTOR TERMODINÁMICO LOCAL ---
 def calc_wb(T, RH):
     return T * np.arctan(0.151977 * (RH + 8.313659)**0.5) + np.arctan(T + RH) - np.arctan(RH - 1.676331) + 0.00391838 * (RH)**1.5 * np.arctan(0.023101 * RH) - 4.686035
 
@@ -104,68 +106,14 @@ def mc(sub, base_col, target_col, t):
     h = sub[(sub[base_col] >= t - 0.2) & (sub[base_col] <= t + 0.2)]
     return h[target_col].mean() if not h.empty else sub[target_col].mean()
 
-def is_missing(v):
-    try: return pd.isna(v)
-    except: return False
-
-def apply_u(v, vtype, is_ip):
-    if not is_ip: return v
-    if v in ('N/A', '', None, '-', '---') or is_missing(v): return np.nan
-    try: v = float(v)
-    except: return v
-    
-    if vtype == 'T': return v * 1.8 + 32          
-    if vtype == 'TR': return v * 1.8              
-    if vtype == 'P': return v / 25.4              
-    if vtype == 'WS': return v * 2.23694          
-    if vtype == 'E': return v * 0.429923          
-    if vtype == 'HR': return v * 7.0              
-    if vtype == 'R': return v * 0.316998          
-    if vtype == 'ALT': return v * 3.28084           
-    if vtype == 'PRES': return v * 0.295300          
-    return v
-
 def fmt_u(v, decimals=1):
-    if v in ('N/A', '', None) or is_missing(v): return 'N/A'
+    if pd.isna(v) or v in ('N/A', '', None): return 'N/A'
     try:
         if np.isinf(float(v)): return 'N/A'
         return f"{float(v):.{decimals}f}"
     except: return str(v)
 
-def parse_and_convert(text, conv_type, is_ip):
-    if not text or not text.strip(): return text
-    text = text.strip()
-    if text.upper() in ("N/A", "NA", "NULL", "---", "-"): return "N/A"
-    parts = re.split(r'\s*/\s*', text)
-    converted = []
-    for p in parts:
-        p = p.strip()
-        try:
-            val_str = p.replace('−', '-').replace(',', '')
-            val = float(val_str)
-            new_val = apply_u(val, conv_type, is_ip)
-            converted.append(fmt_u(new_val))
-        except: converted.append(p)
-    return " / ".join(converted)
-
-def convert_table_cells(cells, convs, is_ip):
-    for i, td in enumerate(cells):
-        if i < len(convs) and convs[i]:
-            td.string = parse_and_convert(td.get_text(strip=True), convs[i], is_ip)
-
-def unit_labels(is_ip):
-    return {
-        "T": "°F" if is_ip else "°C",
-        "P": "in" if is_ip else "mm",
-        "WS": "mph" if is_ip else "m/s",
-        "R": "Btu/(h·ft²)" if is_ip else "W m-2",
-        "HR": "grains/lb" if is_ip else "g/kg",
-        "E": "Btu/lb" if is_ip else "kJ/kg",
-        "ALT": "ft" if is_ip else "m",
-        "PRES": "inHg" if is_ip else "kPa",
-    }
-
-# --- 4. INTERFAZ PROFESIONAL ---
+# --- 5. INTERFAZ PROFESIONAL ---
 st.markdown("<h2 style='text-align: center; color: #1f456e; font-family: Arial, sans-serif; font-weight: bold;'>CONDICIONES CLIMÁTICAS DE DISEÑO</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -175,10 +123,6 @@ with col_params:
     st.markdown("<h4 style='color: #333; font-family: Arial, sans-serif;'>Configuración del Reporte</h4>", unsafe_allow_html=True)
     modo = st.radio("Fuente de Datos:", ["Coordenadas Satelitales (NASA)", "Estación Local (Datos EPW)"], label_visibility="collapsed")
     
-    st.markdown("<h4 style='color: #333; font-family: Arial, sans-serif; margin-top: 15px;'>Sistema de Unidades</h4>", unsafe_allow_html=True)
-    unit_sys = st.radio("Formato:", ["SI (Métrico)", "IP (Imperial)"], horizontal=True, label_visibility="collapsed")
-    is_ip = unit_sys == "IP (Imperial)"
-
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     file_map = get_epw_mapping()
 
@@ -209,30 +153,28 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # =========================================================================
-    # --- SISTEMA DE PAYWALL (PAGO REAL) ---
-    # =========================================================================
+    # --- SISTEMA DE PAYWALL (PAGO REAL EN STRIPE) ---
     btn_generar = False
-    
-    if not st.session_state.pagado:
-        st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
-        
-        # ---> AQUÍ DEBES PONER TU LINK DE STRIPE O MERCADO PAGO REAL <---
-        link_pago_real = "https://buy.stripe.com/test_tupago" 
-        
-        col_pay1, col_pay2 = st.columns(2)
-        col_pay1.markdown(
-            f"""
-            <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #0070ba; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
-                💳 Pagar Real (Tarjeta)
-            </a>
-            """, 
-            unsafe_allow_html=True
-        )
-        
-        if col_pay2.button("Simular Pago ✔️"):
-            st.session_state.pagado = True
-            st.rerun()
+    if not st.session_state.pagaged:
+        if not st.session_state.pagado:
+            st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
+            
+            # REEMPLAZAR CON TU LINK REAL DE COBRO DE STRIPE
+            link_pago_real = "https://buy.stripe.com/tu_link_real_aqui" 
+            
+            col_pay1, col_pay2 = st.columns(2)
+            col_pay1.markdown(
+                f"""
+                <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #0070ba; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
+                    💳 Pagar Real (Stripe)
+                </a>
+                """, 
+                unsafe_allow_html=True
+            )
+            
+            if col_pay2.button("Simular Pago ✔️"):
+                st.session_state.pagado = True
+                st.rerun()
     else:
         st.success("✅ Pago validado exitosamente. Acceso desbloqueado.")
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
@@ -246,6 +188,7 @@ with col_map:
         if 'search_success' in st.session_state: st.success(st.session_state.search_success)
         if 'search_error' in st.session_state: st.error(st.session_state.search_error)
     
+    # MAPA SATELITAL GOOGLE HYBRID
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -264,6 +207,7 @@ with col_map:
 
 st.markdown("---")
 
+# --- 6. CSS CLÓNICO NASA PARA REPORTES ---
 css_base = """
 <style>
     @page { size: A4 portrait; margin: 6mm; }
@@ -280,132 +224,25 @@ css_base = """
 css_pdf = css_base + "<style> body, td { font-size: 6px !important; } .header-blue, th.nasa-blue { font-size: 7px !important; } .title-bar { font-size: 11px !important; } .location-pin { font-size: 12px !important; } </style>"
 css_preview = css_base + "<style> body, td { font-size: 11px !important; } .header-blue, th.nasa-blue { font-size: 13px !important; } .title-bar { font-size: 16px !important; } .location-pin { font-size: 15px !important; } table { margin-bottom: 15px !important; } </style>"
 
-units = unit_labels(is_ip)
-h_T, h_P, h_WS, h_R, h_HR, h_E = units["T"], units["P"], units["WS"], units["R"], units["HR"], units["E"]
-unit_suffix = "IP" if is_ip else "SI"
-
-# --- 5. LÓGICA DE GENERACIÓN MAESTRA ---
+# --- 7. LÓGICA DE GENERACIÓN ---
 if btn_generar:
     if start_y >= end_y:
         st.error("Error: El año de inicio debe ser menor al año de fin.")
         st.stop()
 
     if not usar_local:
-        with st.spinner("Procesando matriz satelital (NASA) y mapeando conversiones a IP..."):
+        with st.spinner("Procesando matriz satelital nativa en Sistema Internacional (SI)..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=45)
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
+                    # Filtros de formato y privacidad
                     html_crudo = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    if is_ip:
-                        try:
-                            soup = BeautifulSoup(html_crudo, 'html.parser')
-                            
-                            # 1. Reemplazo de Textos y Etiquetas
-                            for node in soup.find_all(string=True):
-                                if node.parent.name not in ['style', 'script']:
-                                    new_text = str(node)
-                                    if any(x in new_text for x in ['(°C)', '(m/s)', '(mm)', 'W m-2', 'kJ/kg', 'J/kg', 'g/kg', 'HDD', 'CDD', 'CDH']):
-                                        new_text = new_text.replace('(°C)', f'({h_T})').replace('(m/s)', f'({h_WS})').replace('(mm)', f'({h_P})')
-                                        new_text = new_text.replace('W m-2', h_R).replace('kJ/kg', h_E).replace('J/kg', h_E).replace('g/kg', h_HR)
-                                        new_text = new_text.replace('HDD10.0', 'HDD50.0').replace('HDD18.3', 'HDD65.0')
-                                        new_text = new_text.replace('CDD10.0', 'CDD50.0').replace('CDD18.3', 'CDD65.0')
-                                        new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
-                                        if new_text != str(node): node.replace_with(new_text)
-
-                            # 2. Elevación y Presión
-                            for td in soup.find_all(['td', 'th', 'span', 'div']):
-                                txt = td.get_text(" ", strip=True)
-                                if txt.startswith("Elevation:"):
-                                    m = re.search(r"Elevation:\s*([-+]?\d+(?:\.\d+)?)", txt)
-                                    if m: td.string = f"Elevation: {fmt_u(apply_u(float(m.group(1)), 'ALT', True), 1)} {units['ALT']}"
-                                elif txt.startswith("StdPres:"):
-                                    m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
-                                    if m: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
-
-                            # 3. ALGORITMO DE MÁQUINA DE ESTADOS (Lectura Fila por Fila Independiente de Tablas)
-                            current_section = None
-                            for tr in soup.find_all('tr'):
-                                row_text = tr.get_text(" ", strip=True).upper()
-                                
-                                # Cambio de estado según la sección detectada
-                                if "ANNUAL HEATING AND HUMIDIFICATION" in row_text:
-                                    current_section = "HEATING"
-                                    continue
-                                elif "ANNUAL COOLING, DEHUMIDIFICATION" in row_text:
-                                    current_section = "COOLING"
-                                    continue
-                                elif "EXTREME ANNUAL DESIGN" in row_text:
-                                    current_section = "EXTREME"
-                                    continue
-                                elif "MONTHLY CLIMATIC DESIGN" in row_text:
-                                    current_section = "MONTHLY"
-                                    continue
-                                
-                                tds = tr.find_all(['td', 'th'])
-                                if not tds: continue
-                                
-                                # Procesamiento según la sección actual
-                                if current_section == "HEATING":
-                                    first_cell = tds[0].get_text(strip=True)
-                                    if first_cell.isdigit() and len(tds) >= 14:
-                                        convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
-                                        current_section = None 
-
-                                elif current_section == "COOLING":
-                                    first_cell = tds[0].get_text(strip=True)
-                                    if first_cell.isdigit() and len(tds) >= 16:
-                                        convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
-                                        current_section = None 
-
-                                elif current_section == "EXTREME":
-                                    if "MEAN" in row_text or "YEARS" in row_text: continue
-                                    if "DB" in row_text and len(tds) >= 15:
-                                        convs = ['WS', 'WS', 'WS', 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
-                                    elif "WB" in row_text and len(tds) >= 12:
-                                        convs = ['T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
-
-                                elif current_section == "MONTHLY":
-                                    if "JAN" in row_text and "FEB" in row_text: continue
-                                    if len(tds) < 13: continue
-                                    
-                                    row_label = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
-                                    if not row_label: row_label = tds[0].get_text(strip=True).upper()
-                                    
-                                    if "PARAMETER" in row_label or "ANNUAL" == row_label.strip(): continue
-                                    
-                                    last_cell = tds[-1].get_text(strip=True)
-                                    if not any(c.isdigit() for c in last_cell): continue
-                                    
-                                    vtype = 'T'
-                                    if 'PREC' in row_label: vtype = 'P'
-                                    elif 'WS' in row_label or 'WIND' in row_label: vtype = 'WS'
-                                    elif any(x in row_label for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
-                                    elif any(x in row_label for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
-                                    
-                                    for td in tds[-13:]:
-                                        td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
-                            
-                            html_crudo = str(soup)
-                        except Exception as e: pass
-
                     loc_name = get_location_name(lat, lon)
                     pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
                     html_crudo = html_crudo.replace("<table", f"{pin_html}\n<table", 1)
@@ -413,27 +250,21 @@ if btn_generar:
                     html_preview_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_preview))
                     html_pdf_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_pdf))
                     
-                    st.success(f"Reporte procesado exitosamente en formato {unit_sys}.")
-                    with st.expander("Resultados del Reporte de Diseño", expanded=True):
+                    st.success("Reporte satelital generado de forma nativa exitosamente.")
+                    with st.expander("Resultados del Reporte de Diseño (SI)", expanded=True):
                         components.html(html_preview_final, height=700, scrolling=True)
                     
                     pdf_file = HTML(string=html_pdf_final).write_pdf()
-                    st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_NASA_{unit_suffix}_{lat}_{lon}.pdf", mime="application/pdf")
-                
+                    st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_NASA_SI_{lat}_{lon}.pdf", mime="application/pdf")
                 elif respuesta.status_code == 422:
-                    st.error("Error: El servidor ha rechazado la solicitud debido a un rango de años insuficiente.")
-                else: 
+                    st.error("Error: Rango de años insuficiente.")
+                else:
                     st.error(f"Error de conectividad (HTTP {respuesta.status_code}).")
-            
-            except Exception as e: 
-                st.error("Error: Tiempo de espera agotado. Servidores NASA ocupados.")
+            except:
+                st.error("Error: Tiempo de espera agotado con la NASA.")
 
     else:
-        if not selected_city:
-            st.error("Agregue archivos .epw en la carpeta data para usar el modo local.")
-            st.stop()
-
-        with st.spinner("Estructurando matriz de datos locales y procesando diseño..."):
+        with st.spinner("Procesando matriz de datos locales y estructurando diseño..."):
             filename = file_map[selected_city]
             period_display = "TMYx"
             try:
@@ -456,9 +287,8 @@ if btn_generar:
             df['Enth'] = calc_enthalpy(df['DB'], df['HR'])
             df['WB'] = calc_wb(df['DB'], df['RH'])
 
-            p_kpa = 101.325 * (1 - 2.25577e-5 * alt_display)**5.25588
-            stdp_display = f"{p_kpa * 0.2953:.2f} inHg" if is_ip else f"{p_kpa:.2f} kPa"
-            alt_print = f"{alt_display * 3.28084:.1f} ft" if is_ip else f"{alt_display} m"
+            stdp_display = f"{df['Press_kPa'].mean():.2f} kPa"
+            alt_print = f"{alt_display:.1f} m"
             
             hottest_month = df.groupby('Month')['DB'].mean().idxmax()
             coldest_month = df.groupby('Month')['DB'].mean().idxmin()
@@ -475,63 +305,59 @@ if btn_generar:
                 r += "</tr>"
                 return r
 
-            lab_hdd1, lab_hdd2 = ("HDD50.0", "HDD65.0") if is_ip else ("HDD10.0", "HDD18.3")
-            lab_cdd1, lab_cdd2 = ("CDD50.0", "CDD65.0") if is_ip else ("CDD10.0", "CDD18.3")
-            lab_cdh1, lab_cdh2 = ("CDH74.0", "CDH80.0") if is_ip else ("CDH23.3", "CDH26.7")
-
             m_rows = ""
-            m_rows += build_row([(f"Temperatures,<br>Degree-Days and<br>Degree-Hours<br>({h_T})", 8, 1, True), ("DBAvg", 1, 2, False)], lambda x: apply_u(x['DB'].mean(), 'T', is_ip))
-            m_rows += build_row([("DBStd", 1, 2, False)], lambda x: apply_u(x['DB'].std(), 'TR', is_ip))
-            m_rows += build_row([(lab_hdd1, 1, 2, False)], lambda x: apply_u((10.0 - x['DB']).clip(lower=0).sum() / 24, 'TR', is_ip))
-            m_rows += build_row([(lab_hdd2, 1, 2, False)], lambda x: apply_u((18.3 - x['DB']).clip(lower=0).sum() / 24, 'TR', is_ip))
-            m_rows += build_row([(lab_cdd1, 1, 2, False)], lambda x: apply_u((x['DB'] - 10.0).clip(lower=0).sum() / 24, 'TR', is_ip))
-            m_rows += build_row([(lab_cdd2, 1, 2, False)], lambda x: apply_u((x['DB'] - 18.3).clip(lower=0).sum() / 24, 'TR', is_ip))
-            m_rows += build_row([(lab_cdh1, 1, 2, False)], lambda x: apply_u((x['DB'] - 23.3).clip(lower=0).sum(), 'TR', is_ip))
-            m_rows += build_row([(lab_cdh2, 1, 2, False)], lambda x: apply_u((x['DB'] - 26.7).clip(lower=0).sum(), 'TR', is_ip))
+            m_rows += build_row([("Temperatures,<br>Degree-Days and<br>Degree-Hours<br>(°C)", 8, 1, True), ("DBAvg", 1, 2, False)], lambda x: x['DB'].mean())
+            m_rows += build_row([("DBStd", 1, 2, False)], lambda x: x['DB'].std())
+            m_rows += build_row([("HDD10.0", 1, 2, False)], lambda x: (10.0 - x['DB']).clip(lower=0).sum() / 24)
+            m_rows += build_row([("HDD18.3", 1, 2, False)], lambda x: (18.3 - x['DB']).clip(lower=0).sum() / 24)
+            m_rows += build_row([("CDD10.0", 1, 2, False)], lambda x: (x['DB'] - 10.0).clip(lower=0).sum() / 24)
+            m_rows += build_row([("CDD18.3", 1, 2, False)], lambda x: (x['DB'] - 18.3).clip(lower=0).sum() / 24)
+            m_rows += build_row([("CDH23.3", 1, 2, False)], lambda x: (x['DB'] - 23.3).clip(lower=0).sum())
+            m_rows += build_row([("CDH26.7", 1, 2, False)], lambda x: (x['DB'] - 26.7).clip(lower=0).sum())
             
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"Wind ({h_WS})", 1, 1, True), ("WSAvg", 1, 2, False)], lambda x: apply_u(x['WS'].mean(), 'WS', is_ip))
+            m_rows += build_row([("Wind (m/s)", 1, 1, True), ("WSAvg", 1, 2, False)], lambda x: x['WS'].mean())
             
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"Precipitation<br>({h_P})", 4, 1, True), ("PrecAvg", 1, 2, False)], lambda x: apply_u(x['Precip'].sum(), 'P', is_ip))
-            m_rows += build_row([("PrecMax", 1, 2, False)], lambda x: apply_u(x['Precip'].sum(), 'P', is_ip)) 
-            m_rows += build_row([("PrecMin", 1, 2, False)], lambda x: apply_u(x['Precip'].sum(), 'P', is_ip)) 
+            m_rows += build_row([("Precipitation<br>(mm)", 4, 1, True), ("PrecAvg", 1, 2, False)], lambda x: x['Precip'].sum())
+            m_rows += build_row([("PrecMax", 1, 2, False)], lambda x: x['Precip'].sum()) 
+            m_rows += build_row([("PrecMin", 1, 2, False)], lambda x: x['Precip'].sum()) 
             m_rows += build_row([("PrecStd", 1, 2, False)], lambda x: 0.0)
             
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"Monthly Design<br>Dry Bulb and Mean<br>Coincident Wet<br>Bulb Temperatures<br>({h_T})", 8, 1, True), ("0.4%", 2, 1, False), ("DB", 1, 1, False)], lambda x: apply_u(x['DB'].quantile(0.996), 'T', is_ip))
-            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: apply_u(mc(x, 'DB', 'WB', x['DB'].quantile(0.996)), 'T', is_ip))
-            m_rows += build_row([("2%", 2, 1, False), ("DB", 1, 1, False)], lambda x: apply_u(x['DB'].quantile(0.980), 'T', is_ip))
-            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: apply_u(mc(x, 'DB', 'WB', x['DB'].quantile(0.980)), 'T', is_ip))
-            m_rows += build_row([("5%", 2, 1, False), ("DB", 1, 1, False)], lambda x: apply_u(x['DB'].quantile(0.950), 'T', is_ip))
-            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: apply_u(mc(x, 'DB', 'WB', x['DB'].quantile(0.950)), 'T', is_ip))
-            m_rows += build_row([("10%", 2, 1, False), ("DB", 1, 1, False)], lambda x: apply_u(x['DB'].quantile(0.900), 'T', is_ip))
-            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: apply_u(mc(x, 'DB', 'WB', x['DB'].quantile(0.900)), 'T', is_ip))
+            m_rows += build_row([("Monthly Design<br>Dry Bulb and Mean<br>Coincident Wet<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.996))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.996)))
+            m_rows += build_row([("2%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.980))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.980)))
+            m_rows += build_row([("5%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.950))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.950)))
+            m_rows += build_row([("10%", 2, 1, False), ("DB", 1, 1, False)], lambda x: x['DB'].quantile(0.900))
+            m_rows += build_row([("MCWB", 1, 1, False)], lambda x: mc(x, 'DB', 'WB', x['DB'].quantile(0.900)))
 
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"Monthly Design<br>Wet Bulb and Mean<br>Coincident Dry<br>Bulb Temperatures<br>({h_T})", 8, 1, True), ("0.4%", 2, 1, False), ("WB", 1, 1, False)], lambda x: apply_u(x['WB'].quantile(0.996), 'T', is_ip))
-            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: apply_u(mc(x, 'WB', 'DB', x['WB'].quantile(0.996)), 'T', is_ip))
-            m_rows += build_row([("2%", 2, 1, False), ("WB", 1, 1, False)], lambda x: apply_u(x['WB'].quantile(0.980), 'T', is_ip))
-            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: apply_u(mc(x, 'WB', 'DB', x['WB'].quantile(0.980)), 'T', is_ip))
-            m_rows += build_row([("5%", 2, 1, False), ("WB", 1, 1, False)], lambda x: apply_u(x['WB'].quantile(0.950), 'T', is_ip))
-            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: apply_u(mc(x, 'WB', 'DB', x['WB'].quantile(0.950)), 'T', is_ip))
-            m_rows += build_row([("10%", 2, 1, False), ("WB", 1, 1, False)], lambda x: apply_u(x['WB'].quantile(0.900), 'T', is_ip))
-            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: apply_u(mc(x, 'WB', 'DB', x['WB'].quantile(0.900)), 'T', is_ip))
+            m_rows += build_row([("Monthly Design<br>Wet Bulb and Mean<br>Coincident Dry<br>Bulb Temperatures<br>(°C)", 8, 1, True), ("0.4%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.996))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.996)))
+            m_rows += build_row([("2%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.980))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.980)))
+            m_rows += build_row([("5%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.950))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.950)))
+            m_rows += build_row([("10%", 2, 1, False), ("WB", 1, 1, False)], lambda x: x['WB'].quantile(0.900))
+            m_rows += build_row([("MCDB", 1, 1, False)], lambda x: mc(x, 'WB', 'DB', x['WB'].quantile(0.900)))
 
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"Mean Daily<br>Temperature Range<br>({h_T})", 5, 1, True), ("MDBR", 1, 2, False)], lambda x: apply_u((x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean(), 'TR', is_ip))
-            m_rows += build_row([("5% DB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: apply_u((x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).quantile(0.95), 'TR', is_ip))
-            m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: apply_u((x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).mean(), 'TR', is_ip))
-            m_rows += build_row([("5% WB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: apply_u((x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean(), 'TR', is_ip))
-            m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: apply_u((x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).quantile(0.95), 'TR', is_ip))
+            m_rows += build_row([("Mean Daily<br>Temperature Range<br>(°C)", 5, 1, True), ("MDBR", 1, 2, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
+            m_rows += build_row([("5% DB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).quantile(0.95))
+            m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).mean())
+            m_rows += build_row([("5% WB", 2, 1, False), ("MCDBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['DB'].max() - x.groupby(x.index // 24)['DB'].min()).mean())
+            m_rows += build_row([("MCWBR", 1, 1, False)], lambda x: (x.groupby(x.index // 24)['WB'].max() - x.groupby(x.index // 24)['WB'].min()).quantile(0.95))
 
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"Clear Sky Solar<br>Irradiance ({h_R})", 2, 1, True), ("Ebn,noon", 1, 2, False)], lambda x: apply_u(x[x['Hour'].between(11,13)]['DirNorm'].mean() if not x.empty else 0, 'R', is_ip))
-            m_rows += build_row([("Edn,noon", 1, 2, False)], lambda x: apply_u(x[x['Hour'].between(11,13)]['DifHorz'].mean() if not x.empty else 0, 'R', is_ip))
+            m_rows += build_row([("Clear Sky Solar<br>Irradiance (W m-2)", 2, 1, True), ("Ebn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DirNorm'].mean() if not x.empty else 0)
+            m_rows += build_row([("Edn,noon", 1, 2, False)], lambda x: x[x['Hour'].between(11,13)]['DifHorz'].mean() if not x.empty else 0)
             
             m_rows += "<tr><th colspan='16' class='header-blue'>&nbsp;</th></tr>"
-            m_rows += build_row([(f"All-Sky Solar<br>Radiation ({h_R})", 2, 1, True), ("RadAvg", 1, 2, False)], lambda x: apply_u(x['GloHorz'].mean() * 24 / 1000 if not x.empty else 0, 'R', is_ip))
-            m_rows += build_row([("RadStd", 1, 2, False)], lambda x: apply_u(x['GloHorz'].std() * 24 / 1000 if not x.empty else 0, 'R', is_ip))
+            m_rows += build_row([("All-Sky Solar<br>Radiation (W m-2)", 2, 1, True), ("RadAvg", 1, 2, False)], lambda x: x['GloHorz'].mean() * 24 / 1000 if not x.empty else 0)
+            m_rows += build_row([("RadStd", 1, 2, False)], lambda x: x['GloHorz'].std() * 24 / 1000 if not x.empty else 0)
 
             city_only = selected_city.split('-')[-1].strip().upper()
             pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
@@ -558,10 +384,10 @@ if btn_generar:
                     <tr><th colspan="15" class="header-blue">Annual Heating and Humidification Design Conditions</th></tr>
                     <tr class="gray-header">
                         <td rowspan="2">Coldest<br>Month</td>
-                        <td colspan="2">Heating DB ({h_T})</td>
-                        <td colspan="6">Humidification DP / MCDB ({h_T}) and HR ({h_HR})</td>
-                        <td colspan="4">Coldest month WS / MCDB ({h_WS} / {h_T})</td>
-                        <td colspan="2">MCWS ({h_WS}) / PCWD to<br>99.6% DB</td>
+                        <td colspan="2">Heating DB (°C)</td>
+                        <td colspan="6">Humidification DP / MCDB (°C) and HR (g/kg)</td>
+                        <td colspan="4">Coldest month WS / MCDB (m/s / °C)</td>
+                        <td colspan="2">MCWS (m/s) / PCWD to<br>99.6% DB</td>
                     </tr>
                     <tr class="gray-header">
                         <td>99.6%</td><td>99%</td>
@@ -572,12 +398,12 @@ if btn_generar:
                     </tr>
                     <tr>
                         <td style="font-weight:bold;">{coldest_month}</td>
-                        <td>{apply_u(df['DB'].quantile(0.004), 'T', is_ip):.1f}</td><td>{apply_u(df['DB'].quantile(0.010), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DP'].quantile(0.004), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.004)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.004)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DP'].quantile(0.010), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.010)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.010)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WS'].quantile(0.996), 'WS', is_ip):.1f}</td><td>{apply_u(mc(df, 'WS', 'DB', df['WS'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WS'].quantile(0.990), 'WS', is_ip):.1f}</td><td>{apply_u(mc(df, 'WS', 'DB', df['WS'].quantile(0.990)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(mc(df, 'DB', 'WS', df['DB'].quantile(0.004)), 'WS', is_ip):.1f}</td><td>N/A</td>
+                        <td>{df['DB'].quantile(0.004):.1f}</td><td>{df['DB'].quantile(0.010):.1f}</td>
+                        <td>{df['DP'].quantile(0.004):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.004)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.004)):.1f}</td>
+                        <td>{df['DP'].quantile(0.010):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.010)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.010)):.1f}</td>
+                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
+                        <td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.990)):.1f}</td>
+                        <td>{mc(df, 'DB', 'WS', df['DB'].quantile(0.004)):.1f}</td><td>N/A</td>
                     </tr>
                 </table>
 
@@ -585,11 +411,11 @@ if btn_generar:
                     <tr><th colspan="17" class="header-blue">Annual Cooling, Dehumidification, and Enthalpy Design Conditions</th></tr>
                     <tr class="gray-header">
                         <td rowspan="2">Hottest<br>Month</td><td rowspan="2">Hottest<br>Month<br>DB Range</td>
-                        <td colspan="4">Cooling DB / MCWB ({h_T})</td>
-                        <td colspan="4">Evaporation WB / MCDB ({h_T})</td>
-                        <td colspan="3">Dehumid. DP/MCDB ({h_T}) and HR ({h_HR})</td>
-                        <td colspan="3">Enthalpy / MCDB ({h_E} / {h_T})</td>
-                        <td rowspan="2">Ext.<br>Max WB<br>({h_T})</td>
+                        <td colspan="4">Cooling DB / MCWB (°C)</td>
+                        <td colspan="4">Evaporation WB / MCDB (°C)</td>
+                        <td colspan="3">Dehumid. DP/MCDB (°C) and HR (g/kg)</td>
+                        <td colspan="3">Enthalpy / MCDB (kJ/kg / °C)</td>
+                        <td rowspan="2">Ext.<br>Max WB<br>(°C)</td>
                     </tr>
                     <tr class="gray-header">
                         <td colspan="2">0.4%</td><td colspan="2">2%</td>
@@ -599,22 +425,22 @@ if btn_generar:
                     </tr>
                     <tr>
                         <td style="font-weight:bold;">{hottest_month}</td>
-                        <td>{apply_u(df[df['Month'] == hottest_month]['DB'].max() - df[df['Month'] == hottest_month]['DB'].min(), 'TR', is_ip):.1f}</td>
-                        <td>{apply_u(df['DB'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DB', 'WB', df['DB'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DB'].quantile(0.980), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DB', 'WB', df['DB'].quantile(0.980)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'WB', 'DB', df['WB'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].quantile(0.980), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'WB', 'DB', df['WB'].quantile(0.980)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['DP'].quantile(0.996), 'T', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'HR', df['DP'].quantile(0.996)), 'HR', is_ip):.1f}</td><td>{apply_u(mc(df, 'DP', 'DB', df['DP'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['Enth'].quantile(0.996), 'E', is_ip):.1f}</td><td>{apply_u(df['Enth'].quantile(0.990), 'E', is_ip):.1f}</td><td>{apply_u(mc(df, 'Enth', 'DB', df['Enth'].quantile(0.996)), 'T', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].max(), 'T', is_ip):.1f}</td>
+                        <td>{df[df['Month'] == hottest_month]['DB'].max() - df[df['Month'] == hottest_month]['DB'].min():.1f}</td>
+                        <td>{df['DB'].quantile(0.996):.1f}</td><td>{mc(df, 'DB', 'WB', df['DB'].quantile(0.996)):.1f}</td>
+                        <td>{df['DB'].quantile(0.980):.1f}</td><td>{mc(df, 'DB', 'WB', df['DB'].quantile(0.980)):.1f}</td>
+                        <td>{df['WB'].quantile(0.996):.1f}</td><td>{mc(df, 'WB', 'DB', df['WB'].quantile(0.996)):.1f}</td>
+                        <td>{df['WB'].quantile(0.980):.1f}</td><td>{mc(df, 'WB', 'DB', df['WB'].quantile(0.980)):.1f}</td>
+                        <td>{df['DP'].quantile(0.996):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.996)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.996)):.1f}</td>
+                        <td>{df['Enth'].quantile(0.996):.1f}</td><td>{df['Enth'].quantile(0.990):.1f}</td><td>{mc(df, 'Enth', 'DB', df['Enth'].quantile(0.996)):.1f}</td>
+                        <td>{df['WB'].max():.1f}</td>
                     </tr>
                 </table>
 
                 <table>
                     <tr><th colspan="12" class="header-blue">Extreme Annual Design Conditions</th></tr>
                     <tr class="gray-header">
-                        <td colspan="3">Extreme Annual WS ({h_WS})</td><td colspan="4">Extreme Annual Temperature ({h_T})</td>
-                        <td colspan="4">n-Year Return Period Values of Extreme Temperature ({h_T})</td>
+                        <td colspan="3">Extreme Annual WS (m/s)</td><td colspan="4">Extreme Annual Temperature (°C)</td>
+                        <td colspan="4">n-Year Return Period Values of Extreme Temperature (°C)</td>
                     </tr>
                     <tr class="gray-header">
                         <td>1%</td><td>2.5%</td><td>5%</td>
@@ -622,9 +448,9 @@ if btn_generar:
                         <td>n=5 years</td><td>n=10 years</td><td>n=20 years</td><td>n=50 years</td>
                     </tr>
                     <tr>
-                        <td>{apply_u(df['WS'].quantile(0.990), 'WS', is_ip):.1f}</td><td>{apply_u(df['WS'].quantile(0.975), 'WS', is_ip):.1f}</td><td>{apply_u(df['WS'].quantile(0.950), 'WS', is_ip):.1f}</td>
-                        <td>{apply_u(df['DB'].min(), 'T', is_ip):.1f} / {apply_u(df['DB'].max(), 'T', is_ip):.1f}</td><td>{apply_u(df['DB'].std(), 'TR', is_ip):.1f}</td>
-                        <td>{apply_u(df['WB'].min(), 'T', is_ip):.1f} / {apply_u(df['WB'].max(), 'T', is_ip):.1f}</td><td>{apply_u(df['WB'].std(), 'TR', is_ip):.1f}</td>
+                        <td>{df['WS'].quantile(0.990):.1f}</td><td>{df['WS'].quantile(0.975):.1f}</td><td>{df['WS'].quantile(0.950):.1f}</td>
+                        <td>{df['DB'].min():.1f} / {df['DB'].max():.1f}</td><td>{df['DB'].std():.1f}</td>
+                        <td>{df['WB'].min():.1f} / {df['WB'].max():.1f}</td><td>{df['WB'].std():.1f}</td>
                         <td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td>
                     </tr>
                 </table>
@@ -644,11 +470,11 @@ if btn_generar:
             html_preview_final = html_base.replace("</head>", "{css}</head>".format(css=css_preview))
             html_pdf_final = html_base.replace("</head>", "{css}</head>".format(css=css_pdf))
             
-            st.success(f"Reporte procesado exitosamente en formato {unit_sys}.")
+            st.success(f"Reporte procesado exitosamente en formato SI.")
             
             with st.expander("Resultados del Reporte de Diseño", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
             
             safe_city = re.sub(r"[^A-Za-z0-9_-]+", "_", selected_city).strip("_")
             pdf_file = HTML(string=html_pdf_final).write_pdf()
-            st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_EPW_{unit_suffix}_{safe_city}.pdf", mime="application/pdf")
+            st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_EPW_SI_{safe_city}.pdf", mime="application/pdf")
