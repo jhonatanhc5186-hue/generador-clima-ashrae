@@ -62,56 +62,36 @@ def mc(sub, base_col, target_col, t):
     return h[target_col].mean() if not h.empty else sub[target_col].mean()
 
 def is_missing(v):
-    try:
-        return pd.isna(v)
-    except Exception:
-        return False
+    try: return pd.isna(v)
+    except Exception: return False
 
 def apply_u(v, vtype, is_ip):
-    if not is_ip:
-        return v
-    if v in ('N/A', '', None) or is_missing(v):
-        return np.nan
-    try:
-        v = float(v)
-    except Exception:
-        return v
-    if vtype == 'T':
-        return v * 1.8 + 32          # deg C -> deg F
-    if vtype == 'TR':
-        return v * 1.8               # delta C -> delta F
-    if vtype == 'P':
-        return v / 25.4              # mm -> in
-    if vtype == 'WS':
-        return v * 2.23694           # m/s -> mph
-    if vtype == 'E':
-        return v * 0.429923          # kJ/kg -> Btu/lb
-    if vtype == 'HR':
-        return v * 7.0               # g/kg -> grains/lb
-    if vtype == 'R':
-        return v * 0.316998          # W/m2 -> Btu/(h ft2)
-    if vtype == 'ALT':
-        return v * 3.28084           # m -> ft
-    if vtype == 'PRES':
-        return v * 0.295300          # kPa -> inHg
+    if not is_ip: return v
+    if v in ('N/A', '', None) or is_missing(v): return np.nan
+    try: v = float(v)
+    except Exception: return v
+    if vtype == 'T': return v * 1.8 + 32         
+    if vtype == 'TR': return v * 1.8               
+    if vtype == 'P': return v / 25.4              
+    if vtype == 'WS': return v * 2.23694           
+    if vtype == 'E': return v * 0.429923          
+    if vtype == 'HR': return v * 7.0               
+    if vtype == 'R': return v * 0.316998          
+    if vtype == 'ALT': return v * 3.28084           
+    if vtype == 'PRES': return v * 0.295300          
     return v
 
 def fmt_u(v, decimals=1):
-    if v in ('N/A', '', None) or is_missing(v):
-        return 'N/A'
+    if v in ('N/A', '', None) or is_missing(v): return 'N/A'
     try:
-        if np.isinf(float(v)):
-            return 'N/A'
+        if np.isinf(float(v)): return 'N/A'
         return f"{float(v):.{decimals}f}"
-    except Exception:
-        return str(v)
+    except Exception: return str(v)
 
 def parse_and_convert(text, conv_type, is_ip):
-    if not text or not text.strip():
-        return text
+    if not text or not text.strip(): return text
     text = text.strip()
-    if text.upper() in ("N/A", "NA"):
-        return "N/A"
+    if text.upper() in ("N/A", "NA"): return "N/A"
     parts = re.split(r'\s*/\s*', text)
     converted = []
     for p in parts:
@@ -120,14 +100,8 @@ def parse_and_convert(text, conv_type, is_ip):
             val = float(p)
             new_val = apply_u(val, conv_type, is_ip)
             converted.append(fmt_u(new_val))
-        except Exception:
-            converted.append(p)
+        except Exception: converted.append(p)
     return " / ".join(converted)
-
-def convert_table_cells(cells, convs, is_ip):
-    for i, td in enumerate(cells):
-        if i < len(convs) and convs[i]:
-            td.string = parse_and_convert(td.get_text(strip=True), convs[i], is_ip)
 
 def unit_labels(is_ip):
     return {
@@ -163,8 +137,8 @@ with col_params:
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
-        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) # Default 2004
-        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)    # Default 2024
+        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
+        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)    
     else:
         usar_local = True
         if not file_map:
@@ -178,8 +152,7 @@ with col_params:
                     h_data = f.readline().split(',')
                     st.session_state.lat = float(h_data[6])
                     st.session_state.lon = float(h_data[7])
-            except Exception:
-                pass
+            except Exception: pass
         lat = st.number_input("Latitud", format="%.4f", key="lat", disabled=True)
         lon = st.number_input("Longitud", format="%.4f", key="lon", disabled=True)
         start_y, end_y = 2001, 2024
@@ -195,27 +168,31 @@ with col_map:
         if col_btn.button("Buscar y Ubicar", use_container_width=True):
             if search_text:
                 try:
-                    # Codificamos la URL para evitar errores con espacios o comas
                     safe_query = urllib.parse.quote(search_text)
-                    url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
+                    url = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
                     
-                    response = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10)
+                    response = requests.get(url, timeout=10)
                     if response.status_code == 200:
                         res = response.json()
-                        if res:
-                            st.session_state.lat = float(res[0]['lat'])
-                            st.session_state.lon = float(res[0]['lon'])
-                            st.success(f"Ubicación confirmada: {res[0]['display_name']}")
-                        else:
-                            st.error("No se encontró la ubicación. Intente agregar más detalles (Ej. Mollendo, Arequipa, Perú).")
-                    else:
-                        st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
+                        if "results" in res and len(res["results"]) > 0:
+                            loc = res["results"][0]
+                            st.session_state.lat = float(loc['latitude'])
+                            st.session_state.lon = float(loc['longitude'])
+                            
+                            parts = [loc.get('name')]
+                            if 'admin1' in loc and loc['admin1'] != loc.get('name'): parts.append(loc['admin1'])
+                            if 'country' in loc: parts.append(loc['country'])
+                            display_name = ", ".join(filter(None, parts))
+                            
+                            st.success(f"Ubicación confirmada: {display_name}")
+                        else: st.error("No se encontró la ubicación. Intente verificar la ortografía.")
+                    else: st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
                 except requests.exceptions.Timeout:
                     st.error("El servidor de mapas tardó demasiado en responder.")
                 except Exception as e:
                     st.error(f"Error al conectar con el servidor de mapas.")
     
-    # MAPA SATELITAL GOOGLE HYBRID (Alta Resolución)
+    # MAPA SATELITAL GOOGLE HYBRID
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -277,94 +254,111 @@ if btn_generar:
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
-                    # Filtro de Privacidad Inicial
                     html_crudo = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
-                    # CONVERSIÓN ESTRUCTURAL A IP MEDIANTE BEAUTIFUL SOUP
+                    # CONVERSIÓN ESTRUCTURAL QUIRÚRGICA A IP MEDIANTE BEAUTIFUL SOUP
                     if is_ip:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
-                            # Actualizacion de etiquetas (cabeceras)
+                            # Conversión de unidades en los textos (Cabeceras)
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
-                                    new_text = new_text.replace('(°C)', f'({h_T})').replace('(m/s)', f'({h_WS})').replace('(mm)', f'({h_P})')
-                                    new_text = new_text.replace('W m-2', h_R).replace('kJ/kg', h_E).replace('J/kg', h_E).replace('g/kg', h_HR)
-                                    new_text = new_text.replace('HDD10.0', 'HDD50.0').replace('HDD18.3', 'HDD65.0')
-                                    new_text = new_text.replace('CDD10.0', 'CDD50.0').replace('CDD18.3', 'CDD65.0')
-                                    new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
-                                    if new_text != str(node): node.replace_with(new_text)
+                                    if any(x in new_text for x in ['(°C)', '(m/s)', '(mm)', 'W m-2', 'kJ/kg', 'J/kg', 'g/kg', 'HDD', 'CDD', 'CDH']):
+                                        new_text = new_text.replace('(°C)', f'({h_T})').replace('(m/s)', f'({h_WS})').replace('(mm)', f'({h_P})')
+                                        new_text = new_text.replace('W m-2', h_R).replace('kJ/kg', h_E).replace('J/kg', h_E).replace('g/kg', h_HR)
+                                        new_text = new_text.replace('HDD10.0', 'HDD50.0').replace('HDD18.3', 'HDD65.0')
+                                        new_text = new_text.replace('CDD10.0', 'CDD50.0').replace('CDD18.3', 'CDD65.0')
+                                        new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
+                                        if new_text != str(node): node.replace_with(new_text)
 
-                            tables = soup.find_all('table')
+                            # Conversión de valores numéricos en tablas (Búsqueda por nombre de tabla)
+                            for table in soup.find_all('table'):
+                                header_text = table.get_text(" ", strip=True)
+                                trs = table.find_all('tr')
+                                if not trs: continue
 
-                            # Metadata: NASA reports elevation in m and pressure in kPa.
+                                # Tabla 1: Annual Heating
+                                if "Annual Heating and Humidification" in header_text:
+                                    try:
+                                        tds = trs[-1].find_all('td')
+                                        convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
+                                        for i, td in enumerate(tds):
+                                            if i < len(convs) and convs[i]:
+                                                td.string = parse_and_convert(td.get_text(strip=True), convs[i], True)
+                                    except Exception: pass
+
+                                # Tabla 2: Annual Cooling
+                                elif "Annual Cooling, Dehumidification, and Enthalpy" in header_text:
+                                    try:
+                                        tds = trs[-1].find_all('td')
+                                        if len(tds) >= 17:
+                                            convs = [None, 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
+                                            for i, td in enumerate(tds):
+                                                if i < len(convs) and convs[i]:
+                                                    td.string = parse_and_convert(td.get_text(strip=True), convs[i], True)
+                                    except Exception: pass
+
+                                # Tabla 3: Extreme Annual
+                                elif "Extreme Annual Design Conditions" in header_text:
+                                    try:
+                                        for tr in trs[2:]:
+                                            tds = tr.find_all('td')
+                                            if len(tds) >= 16: # Fila Dry Bulb
+                                                convs = ['WS', 'WS', 'WS', None, 'T', 'TR', 'T', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
+                                                for i, td in enumerate(tds):
+                                                    if i < len(convs) and convs[i]:
+                                                        td.string = parse_and_convert(td.get_text(strip=True), convs[i], True)
+                                            elif len(tds) >= 13: # Fila Wet Bulb
+                                                convs = [None, 'T', 'TR', 'T', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
+                                                for i, td in enumerate(tds):
+                                                    if i < len(convs) and convs[i]:
+                                                        td.string = parse_and_convert(td.get_text(strip=True), convs[i], True)
+                                    except Exception: pass
+
+                                # Tabla 4: Monthly Climatic
+                                elif "Monthly Climatic Design Conditions" in header_text:
+                                    try:
+                                        for tr in trs:
+                                            tds = tr.find_all(['td', 'th'])
+                                            if len(tds) < 13: continue
+                                            row_text = tr.get_text(" ", strip=True)
+                                            vtype = None
+                                            
+                                            # Identificación de métrica
+                                            if any(x in row_text for x in ['DBAvg', '0.4%', '1%', '2%', '5%', '10%', 'DB', 'WB', 'MCWB', 'MCDB', 'Max WB']): vtype = 'T'
+                                            if any(x in row_text for x in ['DBStd', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH']): vtype = 'TR'
+                                            if 'WSAvg' in row_text: vtype = 'WS'
+                                            if 'Prec' in row_text: vtype = 'P'
+                                            if any(x in row_text for x in ['Solar', 'Rad', 'Ebn', 'Edn']): vtype = 'R'
+                                            
+                                            # Procesamos las últimas 13 celdas (Anual + 12 Meses)
+                                            if vtype:
+                                                for td in tds[-13:]:
+                                                    td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
+                                    except Exception: pass
+
+                            # Conversión de Elevación y Presión Estándar
                             for td in soup.find_all('td'):
                                 txt = td.get_text(" ", strip=True)
                                 if txt.startswith("Elevation:"):
                                     m = re.search(r"Elevation:\s*([-+]?\d+(?:\.\d+)?)", txt)
                                     if m:
-                                        td.string = f"Elevation: {fmt_u(apply_u(float(m.group(1)), 'ALT', True), 1)} {units['ALT']}"
+                                        try: td.string = f"Elevation: {fmt_u(apply_u(float(m.group(1)), 'ALT', True), 1)} {units['ALT']}"
+                                        except Exception: pass
                                 elif txt.startswith("StdPres:"):
                                     m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
                                     if m:
-                                        td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
-                            
-                            # T1: Annual Heating
-                            if len(tables) > 1: 
-                                tds = tables[1].find_all('tr')[-1].find_all('td')
-                                convs = [None, 'T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', None]
-                                convert_table_cells(tds, convs, True)
-
-                            # T2: Annual Cooling
-                            if len(tables) > 2:
-                                cooling_first = [None, 'TR'] + ['T'] * 12 + ['WS', None]
-                                cooling_second = ['T', 'HR', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'E', 'T', 'E', 'T', 'E', 'T', 'T']
-                                for tr in tables[2].find_all('tr'):
-                                    tds = tr.find_all('td')
-                                    if len(tds) == len(cooling_first) and tds[0].get_text(strip=True).isdigit():
-                                        convert_table_cells(tds, cooling_first, True)
-                                    elif len(tds) == len(cooling_second):
-                                        convert_table_cells(tds, cooling_second, True)
-
-                            # T3: Extreme Annual
-                            if len(tables) > 3:
-                                for tr in tables[3].find_all('tr')[2:]:
-                                    tds = tr.find_all('td')
-                                    if len(tds) >= 16: # Fila DB
-                                        for i in [0,1,2]: tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'WS', True)
-                                        for i in [4,5]: tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'T', True)
-                                        for i in [6,7]: tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'TR', True)
-                                        for i in range(8, 16): tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'T', True)
-                                    elif len(tds) >= 13: # Fila WB
-                                        for i in [1,2]: tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'T', True)
-                                        for i in [3,4]: tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'TR', True)
-                                        for i in range(5, 13): tds[i].string = parse_and_convert(tds[i].get_text(strip=True), 'T', True)
-
-                            # T4: Monthly Climatic
-                            if len(tables) > 4:
-                                for tr in tables[4].find_all('tr'):
-                                    tds = tr.find_all(['td', 'th'])
-                                    if not tds: continue
-                                    row_text = tr.get_text(" ", strip=True)
-                                    vtype = None
-                                    if any(x in row_text for x in ['DBAvg','0.4%','1%','2%','5%','10%','DB','WB','MCWB','MCDB','Max WB']): vtype = 'T'
-                                    if any(x in row_text for x in ['DBStd','MDBR','MCDBR','MCWBR','HDD','CDD','CDH']): vtype = 'TR'
-                                    if 'WSAvg' in row_text: vtype = 'WS'
-                                    if 'Prec' in row_text: vtype = 'P'
-                                    if any(x in row_text for x in ['Solar','Rad','Ebn','Edn']): vtype = 'R'
-                                    
-                                    if vtype and len(tds) >= 13:
-                                        for td in tds[-13:]: # Annual + Jan-Dec
-                                            td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
+                                        try: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
+                                        except Exception: pass
                             
                             html_crudo = str(soup)
-                        except Exception:
-                            pass
+                        except Exception: pass
 
-                    # Inserción final del Pin
+                    # Inserción final del Pin de Ubicación
                     loc_name = get_location_name(lat, lon)
                     pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
                     html_crudo = html_crudo.replace("<table", f"{pin_html}\n<table", 1)
@@ -612,6 +606,6 @@ if btn_generar:
             with st.expander("Resultados del Reporte de Diseño", expanded=True):
                 components.html(html_preview_final, height=700, scrolling=True)
             
-            pdf_file = HTML(string=html_pdf_final).write_pdf()
             safe_city = re.sub(r"[^A-Za-z0-9_-]+", "_", selected_city).strip("_")
+            pdf_file = HTML(string=html_pdf_final).write_pdf()
             st.download_button(label="Descargar Reporte en PDF", data=pdf_file, file_name=f"Condiciones_Climaticas_EPW_{unit_suffix}_{safe_city}.pdf", mime="application/pdf")
