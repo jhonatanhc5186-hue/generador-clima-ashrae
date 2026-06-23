@@ -29,7 +29,6 @@ def execute_search():
     st.session_state.pop('search_error', None)
     query = st.session_state.get('search_input', '')
     if query:
-        # Prevenimos error si el usuario escribe todo junto (Ej. PISCO,PERU)
         clean_query = query.replace(',', ', ').strip()
         safe_query = urllib.parse.quote(clean_query)
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -105,12 +104,13 @@ def mc(sub, base_col, target_col, t):
     h = sub[(sub[base_col] >= t - 0.2) & (sub[base_col] <= t + 0.2)]
     return h[target_col].mean() if not h.empty else sub[target_col].mean()
 
+def is_missing(v):
+    try: return pd.isna(v)
+    except: return False
+
 def apply_u(v, vtype, is_ip):
     if not is_ip: return v
-    try:
-        if pd.isna(v): return np.nan
-    except: pass
-    if v in ('N/A', '', None, '-', '---'): return np.nan
+    if v in ('N/A', '', None, '-', '---') or is_missing(v): return np.nan
     try: v = float(v)
     except: return v
     
@@ -126,17 +126,13 @@ def apply_u(v, vtype, is_ip):
     return v
 
 def fmt_u(v, decimals=1):
-    try:
-        if pd.isna(v): return 'N/A'
-    except: pass
-    if v in ('N/A', '', None): return 'N/A'
+    if v in ('N/A', '', None) or is_missing(v): return 'N/A'
     try:
         if np.isinf(float(v)): return 'N/A'
         return f"{float(v):.{decimals}f}"
     except: return str(v)
 
 def parse_and_convert(text, conv_type, is_ip):
-    """Conversor Quirúrgico que ignora formatos sucios de la NASA"""
     if not text or not text.strip(): return text
     text = text.strip()
     if text.upper() in ("N/A", "NA", "NULL", "---", "-"): return "N/A"
@@ -145,7 +141,6 @@ def parse_and_convert(text, conv_type, is_ip):
     for p in parts:
         p = p.strip()
         try:
-            # Reemplazo de guión unicode de NASA y comas para que float() no falle
             val_str = p.replace('−', '-').replace(',', '')
             val = float(val_str)
             new_val = apply_u(val, conv_type, is_ip)
@@ -223,20 +218,18 @@ with col_params:
         st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
         
         # ---> AQUÍ DEBES PONER TU LINK DE STRIPE O MERCADO PAGO REAL <---
-        # Asegúrate de configurar Stripe para que al finalizar devuelva a tu página con "/?pago=exitoso"
-        link_pago_real = "https://buy.stripe.com/tu_link_real_aqui" 
+        link_pago_real = "https://buy.stripe.com/test_tupago" 
         
         col_pay1, col_pay2 = st.columns(2)
         col_pay1.markdown(
             f"""
             <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #0070ba; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
-                💳 Pagar Real (Stripe)
+                💳 Pagar Real (Tarjeta)
             </a>
             """, 
             unsafe_allow_html=True
         )
         
-        # Botón para uso del desarrollador (puedes borrar la línea de abajo cuando publiques la app)
         if col_pay2.button("Simular Pago ✔️"):
             st.session_state.pagado = True
             st.rerun()
@@ -245,7 +238,6 @@ with col_params:
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
-    # BUSCADOR GEOGRÁFICO CON CALLBACK (SÓLO SATÉLITE)
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
         col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Ilo, Moquegua)...", label_visibility="collapsed", key="search_input")
@@ -254,7 +246,6 @@ with col_map:
         if 'search_success' in st.session_state: st.success(st.session_state.search_success)
         if 'search_error' in st.session_state: st.error(st.session_state.search_error)
     
-    # MAPA SATELITAL GOOGLE HYBRID
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -315,7 +306,7 @@ if btn_generar:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
-                            # 1. Modificación de Textos y Cabeceras
+                            # 1. Reemplazo de Textos y Etiquetas
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
@@ -327,7 +318,7 @@ if btn_generar:
                                         new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
                                         if new_text != str(node): node.replace_with(new_text)
 
-                            # 2. Metadatos (Elevación / Presión)
+                            # 2. Elevación y Presión
                             for td in soup.find_all(['td', 'th', 'span', 'div']):
                                 txt = td.get_text(" ", strip=True)
                                 if txt.startswith("Elevation:"):
@@ -337,64 +328,80 @@ if btn_generar:
                                     m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
                                     if m: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
 
-                            # 3. ALGORITMO ABSOLUTO DE CONVERSIÓN POR CONTENIDO (Detección de Tablas Mensuales)
-                            for table in soup.find_all('table'):
-                                table_text = table.get_text(" ", strip=True).upper()
-                                trs = table.find_all('tr')
-                                if not trs: continue
+                            # 3. ALGORITMO DE MÁQUINA DE ESTADOS (Lectura Fila por Fila Independiente de Tablas)
+                            current_section = None
+                            for tr in soup.find_all('tr'):
+                                row_text = tr.get_text(" ", strip=True).upper()
+                                
+                                # Cambio de estado según la sección detectada
+                                if "ANNUAL HEATING AND HUMIDIFICATION" in row_text:
+                                    current_section = "HEATING"
+                                    continue
+                                elif "ANNUAL COOLING, DEHUMIDIFICATION" in row_text:
+                                    current_section = "COOLING"
+                                    continue
+                                elif "EXTREME ANNUAL DESIGN" in row_text:
+                                    current_section = "EXTREME"
+                                    continue
+                                elif "MONTHLY CLIMATIC DESIGN" in row_text:
+                                    current_section = "MONTHLY"
+                                    continue
+                                
+                                tds = tr.find_all(['td', 'th'])
+                                if not tds: continue
+                                
+                                # Procesamiento según la sección actual
+                                if current_section == "HEATING":
+                                    first_cell = tds[0].get_text(strip=True)
+                                    if first_cell.isdigit() and len(tds) >= 14:
+                                        convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
+                                        for i, conv in enumerate(reversed(convs)):
+                                            idx = len(tds) - 1 - i
+                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                        current_section = None 
 
-                                # T1: Heating
-                                if "HEATING DB" in table_text and "HUMIDIFICATION" in table_text:
-                                    tds = trs[-1].find_all(['td', 'th'])
-                                    convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
-                                    for i, conv in enumerate(reversed(convs)): 
-                                        idx = len(tds) - 1 - i
-                                        if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                elif current_section == "COOLING":
+                                    first_cell = tds[0].get_text(strip=True)
+                                    if first_cell.isdigit() and len(tds) >= 16:
+                                        convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
+                                        for i, conv in enumerate(reversed(convs)):
+                                            idx = len(tds) - 1 - i
+                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                        current_section = None 
 
-                                # T2: Cooling
-                                elif "COOLING DB" in table_text and "EVAPORATION" in table_text:
-                                    tds = trs[-1].find_all(['td', 'th'])
-                                    convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
-                                    for i, conv in enumerate(reversed(convs)):
-                                        idx = len(tds) - 1 - i
-                                        if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
-
-                                # T3: Extreme
-                                elif "EXTREME ANNUAL" in table_text:
-                                    for tr in trs:
-                                        row_text = tr.get_text(" ", strip=True).upper()
-                                        if "MEAN" in row_text or "YEARS" in row_text: continue
-                                        tds = tr.find_all(['td', 'th'])
-                                        if len(tds) < 10: continue
-                                        if "DB" in row_text:
-                                            convs = ['WS', 'WS', 'WS', 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
-                                        else:
-                                            convs = ['T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
+                                elif current_section == "EXTREME":
+                                    if "MEAN" in row_text or "YEARS" in row_text: continue
+                                    if "DB" in row_text and len(tds) >= 15:
+                                        convs = ['WS', 'WS', 'WS', 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
+                                        for i, conv in enumerate(reversed(convs)):
+                                            idx = len(tds) - 1 - i
+                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                                    elif "WB" in row_text and len(tds) >= 12:
+                                        convs = ['T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                         for i, conv in enumerate(reversed(convs)):
                                             idx = len(tds) - 1 - i
                                             if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
 
-                                # T4: Monthly Climatic (Detectado con seguridad por los meses "JAN", "FEB", "DEC")
-                                elif "JAN" in table_text and "FEB" in table_text and "DEC" in table_text:
-                                    for tr in trs:
-                                        tds = tr.find_all(['td', 'th'])
-                                        if len(tds) < 13: continue 
-                                        
-                                        row_text = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
-                                        if not row_text: row_text = tds[0].get_text(strip=True).upper()
-                                        
-                                        # Omitir filas de meses y cabeceras
-                                        if "JAN" in row_text or "PARAMETER" in row_text or "ANNUAL" == row_text.strip(): continue
-                                        
-                                        vtype = 'T'
-                                        if 'PREC' in row_text: vtype = 'P'
-                                        elif 'WS' in row_text or 'WIND' in row_text: vtype = 'WS'
-                                        elif any(x in row_text for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
-                                        elif any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
-                                        
-                                        # Convertimos estrictamente las últimas 13 celdas (Anual y los 12 meses)
-                                        for td in tds[-13:]:
-                                            td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
+                                elif current_section == "MONTHLY":
+                                    if "JAN" in row_text and "FEB" in row_text: continue
+                                    if len(tds) < 13: continue
+                                    
+                                    row_label = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
+                                    if not row_label: row_label = tds[0].get_text(strip=True).upper()
+                                    
+                                    if "PARAMETER" in row_label or "ANNUAL" == row_label.strip(): continue
+                                    
+                                    last_cell = tds[-1].get_text(strip=True)
+                                    if not any(c.isdigit() for c in last_cell): continue
+                                    
+                                    vtype = 'T'
+                                    if 'PREC' in row_label: vtype = 'P'
+                                    elif 'WS' in row_label or 'WIND' in row_label: vtype = 'WS'
+                                    elif any(x in row_label for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
+                                    elif any(x in row_label for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
+                                    
+                                    for td in tds[-13:]:
+                                        td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
                             
                             html_crudo = str(soup)
                         except Exception as e: pass
