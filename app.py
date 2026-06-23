@@ -23,7 +23,45 @@ if 'pagado' not in st.session_state:
 if "pago" in st.query_params and st.query_params["pago"] == "exitoso":
     st.session_state.pagado = True
 
-# --- 2. FUNCIONES BASE ---
+# --- 2. CALLBACK DE BÚSQUEDA GEOGRÁFICA (Doble Motor) ---
+def execute_search():
+    st.session_state.pop('search_success', None)
+    st.session_state.pop('search_error', None)
+    query = st.session_state.get('search_input', '')
+    if query:
+        safe_query = urllib.parse.quote(query.strip())
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        encontrado = False
+        
+        # Intento 1: Nominatim (OpenStreetMap)
+        try:
+            url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
+            res = requests.get(url, headers=headers, timeout=5).json()
+            if res:
+                st.session_state.lat = float(res[0]['lat'])
+                st.session_state.lon = float(res[0]['lon'])
+                st.session_state.search_success = f"📍 Ubicación confirmada: {res[0]['display_name']}"
+                encontrado = True
+        except: pass
+        
+        # Intento 2: Open-Meteo (Respaldo Anti-Bloqueos)
+        if not encontrado:
+            try:
+                url2 = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
+                res2 = requests.get(url2, timeout=5).json()
+                if "results" in res2 and res2["results"]:
+                    loc = res2["results"][0]
+                    st.session_state.lat = float(loc['latitude'])
+                    st.session_state.lon = float(loc['longitude'])
+                    name = ", ".join(filter(None, [loc.get('name'), loc.get('admin1'), loc.get('country')]))
+                    st.session_state.search_success = f"📍 Ubicación confirmada: {name}"
+                    encontrado = True
+            except: pass
+        
+        if not encontrado:
+            st.session_state.search_error = "No se encontró la ubicación o los servidores están ocupados."
+
+# --- 3. FUNCIONES BASE ---
 def clean_city_name(filename):
     dept_map = {"AMA": "Amazonas", "ANC": "Áncash", "APU": "Apurímac", "ARE": "Arequipa", "AYA": "Ayacucho", "CAJ": "Cajamarca", "CUS": "Cusco", "HUC": "Huánuco", "HUV": "Huancavelica", "ICA": "Ica", "JUN": "Junín", "LAL": "La Libertad", "LAM": "Lambayeque", "LIM": "Lima", "LOR": "Loreto", "MDD": "Madre de Dios", "MOQ": "Moquegua", "PAS": "Pasco", "PIU": "Piura", "PUN": "Puno", "SAM": "San Martín", "TAC": "Tacna", "TUM": "Tumbes", "UCA": "Ucayali"}
     try:
@@ -49,14 +87,15 @@ def format_coord(val, is_lat):
 def get_location_name(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        res = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10).json()
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        res = requests.get(url, headers=headers, timeout=5).json()
         address = res.get('address', {})
         pais = address.get('country', 'PERÚ').upper()
         ciudad = address.get('city', address.get('town', address.get('village', address.get('county', 'UBICACIÓN DESCONOCIDA')))).upper()
         return f"{ciudad}, {pais}"
     except: return f"LAT: {lat}, LON: {lon}"
 
-# --- 3. MOTOR TERMODINÁMICO Y CONVERSIÓN ---
+# --- 4. MOTOR TERMODINÁMICO Y CONVERSIÓN ---
 def calc_wb(T, RH):
     return T * np.arctan(0.151977 * (RH + 8.313659)**0.5) + np.arctan(T + RH) - np.arctan(RH - 1.676331) + 0.00391838 * (RH)**1.5 * np.arctan(0.023101 * RH) - 4.686035
 
@@ -110,6 +149,11 @@ def parse_and_convert(text, conv_type, is_ip):
         except: converted.append(p)
     return " / ".join(converted)
 
+def convert_table_cells(cells, convs, is_ip):
+    for i, td in enumerate(cells):
+        if i < len(convs) and convs[i]:
+            td.string = parse_and_convert(td.get_text(strip=True), convs[i], is_ip)
+
 def unit_labels(is_ip):
     return {
         "T": "°F" if is_ip else "°C",
@@ -122,7 +166,7 @@ def unit_labels(is_ip):
         "PRES": "inHg" if is_ip else "kPa",
     }
 
-# --- 4. INTERFAZ PROFESIONAL ---
+# --- 5. INTERFAZ PROFESIONAL ---
 st.markdown("<h2 style='text-align: center; color: #1f456e; font-family: Arial, sans-serif; font-weight: bold;'>CONDICIONES CLIMÁTICAS DE DISEÑO</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -142,6 +186,7 @@ with col_params:
     if "Satelitales" in modo:
         usar_local = False
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
+        # Campos de Latitud y Longitud sincronizados
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
         start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
@@ -166,13 +211,12 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # --- SISTEMA DE PAYWALL (BOTÓN DE PAGO) ---
+    # --- SISTEMA DE PAYWALL ---
     btn_generar = False
     
     if not st.session_state.pagado:
         st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
         
-        # LINK DE PAGO: Reemplaza esto con tu link real de Stripe / MercadoPago
         link_pago_real = "https://buy.stripe.com/test_tupago" 
         
         col_pay1, col_pay2 = st.columns(2)
@@ -185,7 +229,6 @@ with col_params:
             unsafe_allow_html=True
         )
         
-        # Botón para que simules pagos mientras pruebas la app
         if col_pay2.button("Simular Pago ✔️"):
             st.session_state.pagado = True
             st.rerun()
@@ -194,29 +237,16 @@ with col_params:
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
-    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE
+    # BUSCADOR GEOGRÁFICO CON CALLBACK (SÓLO SATÉLITE)
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed")
-        if col_btn.button("Buscar y Ubicar", use_container_width=True):
-            if search_text:
-                try:
-                    safe_query = urllib.parse.quote(search_text)
-                    url = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
-                    response = requests.get(url, timeout=10)
-                    if response.status_code == 200:
-                        res = response.json()
-                        if "results" in res and len(res["results"]) > 0:
-                            loc = res["results"][0]
-                            st.session_state.lat = float(loc['latitude'])
-                            st.session_state.lon = float(loc['longitude'])
-                            parts = [loc.get('name')]
-                            if 'admin1' in loc and loc['admin1'] != loc.get('name'): parts.append(loc['admin1'])
-                            if 'country' in loc: parts.append(loc['country'])
-                            st.success(f"Ubicación confirmada: {', '.join(filter(None, parts))}")
-                        else: st.error("No se encontró la ubicación. Verifique la ortografía.")
-                    else: st.error("Servidor de mapas saturado.")
-                except Exception as e: st.error("Error de conexión con el servidor geográfico.")
+        # Text input vinculado a 'search_input'
+        col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed", key="search_input")
+        # El botón ejecuta la función de búsqueda antes de re-renderizar la UI
+        col_btn.button("Buscar y Ubicar", on_click=execute_search, use_container_width=True)
+        
+        if 'search_success' in st.session_state: st.success(st.session_state.search_success)
+        if 'search_error' in st.session_state: st.error(st.session_state.search_error)
     
     # MAPA SATELITAL GOOGLE HYBRID
     map_html = f"""
@@ -237,7 +267,7 @@ with col_map:
 
 st.markdown("---")
 
-# --- 5. CSS CLÓNICO NASA PARA REPORTES ---
+# --- 6. CSS CLÓNICO NASA PARA REPORTES ---
 css_base = """
 <style>
     @page { size: A4 portrait; margin: 6mm; }
@@ -258,14 +288,14 @@ units = unit_labels(is_ip)
 h_T, h_P, h_WS, h_R, h_HR, h_E = units["T"], units["P"], units["WS"], units["R"], units["HR"], units["E"]
 unit_suffix = "IP" if is_ip else "SI"
 
-# --- 6. LÓGICA DE GENERACIÓN MAESTRA ---
+# --- 7. LÓGICA DE GENERACIÓN ---
 if btn_generar:
     if start_y >= end_y:
         st.error("Error: El año de inicio debe ser menor al año de fin.")
         st.stop()
 
     if not usar_local:
-        with st.spinner("Procesando matriz satelital y mapeando conversiones (NASA)..."):
+        with st.spinner("Procesando matriz satelital (NASA) y aplicando conversiones estructurales inversas..."):
             api_url = f"https://power.larc.nasa.gov/api/application/indicators/point?start={start_y}&end={end_y}&latitude={lat}&longitude={lon}&format=html&user=DAVE"
             try:
                 respuesta = requests.get(api_url, timeout=45)
@@ -280,7 +310,6 @@ if btn_generar:
                         try:
                             soup = BeautifulSoup(html_crudo, 'html.parser')
                             
-                            # 1. Modificar Textos de Títulos
                             for node in soup.find_all(string=True):
                                 if node.parent.name not in ['style', 'script']:
                                     new_text = str(node)
@@ -292,7 +321,6 @@ if btn_generar:
                                         new_text = new_text.replace('CDH23.3', 'CDH74.0').replace('CDH26.7', 'CDH80.0')
                                         if new_text != str(node): node.replace_with(new_text)
 
-                            # 2. Modificar Elevación y Presión
                             for td in soup.find_all(['td', 'th', 'span', 'div']):
                                 txt = td.get_text(" ", strip=True)
                                 if txt.startswith("Elevation:"):
@@ -302,46 +330,30 @@ if btn_generar:
                                     m = re.search(r"StdPres:\s*([-+]?\d+(?:\.\d+)?)", txt)
                                     if m: td.string = f"StdPres: {fmt_u(apply_u(float(m.group(1)), 'PRES', True), 2)} {units['PRES']}"
 
-                            # 3. MÁQUINA DE ESTADOS - LECTURA LINEAL ABSOLUTA
-                            current_section = None
-                            for tr in soup.find_all('tr'):
-                                row_text = tr.get_text(" ", strip=True).upper()
-                                
-                                # Detectamos en qué sección del reporte estamos
-                                if "ANNUAL HEATING AND HUMIDIFICATION" in row_text:
-                                    current_section = "HEATING"
-                                    continue
-                                if "ANNUAL COOLING, DEHUMIDIFICATION" in row_text:
-                                    current_section = "COOLING"
-                                    continue
-                                if "EXTREME ANNUAL DESIGN" in row_text:
-                                    current_section = "EXTREME"
-                                    continue
-                                if "MONTHLY CLIMATIC DESIGN" in row_text:
-                                    current_section = "MONTHLY"
-                                    continue
-                                
-                                tds = tr.find_all(['td', 'th'])
-                                if not tds: continue
-                                
-                                # Ejecución Quirúrgica
-                                if current_section == "HEATING":
-                                    if len(tds) >= 14 and any(c.isdigit() for c in tds[1].get_text()):
-                                        convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
-                                            
-                                elif current_section == "COOLING":
-                                    if len(tds) >= 16 and any(c.isdigit() for c in tds[1].get_text()):
-                                        convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
-                                        for i, conv in enumerate(reversed(convs)):
-                                            idx = len(tds) - 1 - i
-                                            if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+                            for table in soup.find_all('table'):
+                                header_text = table.get_text(" ", strip=True).upper()
+                                trs = table.find_all('tr')
+                                if not trs: continue
 
-                                elif current_section == "EXTREME":
-                                    if "MEAN" not in row_text and "YEARS" not in row_text and any(c.isdigit() for c in tds[-1].get_text()):
-                                        if len(tds) >= 15:
+                                if "HEATING DB" in header_text and "HUMIDIFICATION" in header_text:
+                                    tds = trs[-1].find_all(['td', 'th'])
+                                    convs = ['T', 'T', 'T', 'HR', 'T', 'T', 'HR', 'T', 'WS', 'T', 'WS', 'T', 'WS', 'WS']
+                                    for i, conv in enumerate(reversed(convs)): 
+                                        idx = len(tds) - 1 - i
+                                        if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+
+                                elif "COOLING DB" in header_text and "EVAPORATION WB" in header_text:
+                                    tds = trs[-1].find_all(['td', 'th'])
+                                    convs = ['TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'HR', 'T', 'E', 'E', 'T', 'T']
+                                    for i, conv in enumerate(reversed(convs)):
+                                        idx = len(tds) - 1 - i
+                                        if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
+
+                                elif "EXTREME ANNUAL DESIGN" in header_text:
+                                    for tr in trs[2:]:
+                                        tds = tr.find_all(['td', 'th'])
+                                        row_text = tr.get_text(" ", strip=True).upper()
+                                        if "DB" in row_text:
                                             convs = ['WS', 'WS', 'WS', 'T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
                                         else:
                                             convs = ['T', 'T', 'TR', 'TR', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'T']
@@ -349,22 +361,23 @@ if btn_generar:
                                             idx = len(tds) - 1 - i
                                             if idx >= 0 and conv: tds[idx].string = parse_and_convert(tds[idx].get_text(strip=True), conv, True)
 
-                                elif current_section == "MONTHLY":
-                                    if "JAN" in row_text and "FEB" in row_text: continue
-                                    if len(tds) < 13: continue
-                                    
-                                    row_label = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
-                                    if not row_label: row_label = tds[0].get_text(strip=True).upper()
-                                    
-                                    vtype = 'T' 
-                                    if 'PREC' in row_label: vtype = 'P'
-                                    elif 'WS' in row_label or 'WIND' in row_label: vtype = 'WS'
-                                    elif any(x in row_label for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
-                                    elif any(x in row_label for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
-                                    
-                                    for td in tds[-13:]:
-                                        td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
+                                elif "MONTHLY CLIMATIC DESIGN" in header_text:
+                                    for tr in trs[3:]:
+                                        tds = tr.find_all(['td', 'th'])
+                                        if len(tds) < 13: continue 
                                         
+                                        row_text = " ".join([td.get_text(strip=True).upper() for td in tds[:-13]])
+                                        if not row_text: row_text = tds[0].get_text(strip=True).upper()
+                                        
+                                        vtype = 'T'
+                                        if 'PREC' in row_text: vtype = 'P'
+                                        elif 'WS' in row_text or 'WIND' in row_text: vtype = 'WS'
+                                        elif any(x in row_text for x in ['RAD', 'EBN', 'EDN', 'SOLAR']): vtype = 'R'
+                                        elif any(x in row_text for x in ['DBSTD', 'MDBR', 'MCDBR', 'MCWBR', 'HDD', 'CDD', 'CDH', 'RANGE']): vtype = 'TR'
+                                        
+                                        for td in tds[-13:]:
+                                            td.string = parse_and_convert(td.get_text(strip=True), vtype, True)
+                            
                             html_crudo = str(soup)
                         except Exception as e: pass
 
