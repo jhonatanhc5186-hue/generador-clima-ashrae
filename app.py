@@ -143,8 +143,8 @@ with col_params:
         st.selectbox("Tipo de Reporte", ["Condiciones Climáticas de Diseño"], disabled=True)
         lat = st.number_input("Latitud", format="%.4f", key="lat")
         lon = st.number_input("Longitud", format="%.4f", key="lon")
-        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) 
-        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)
+        start_y = st.selectbox("Año de Inicio", list(range(2001, 2020)), index=3) # Default 2004
+        end_y = st.selectbox("Año de Fin", list(range(2006, 2025)), index=18)    # Default 2024
     else:
         usar_local = True
         if not file_map:
@@ -167,14 +167,17 @@ with col_params:
     btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
+    # BUSCADOR GEOGRÁFICO SÓLO PARA SATÉLITE
     if not usar_local:
         col_search, col_btn = st.columns([4, 1])
-        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Mollendo, Arequipa)...", label_visibility="collapsed")
+        search_text = col_search.text_input("Búsqueda Geográfica:", placeholder="Buscar ciudad (Ej. Arequipa, Perú)...", label_visibility="collapsed")
         if col_btn.button("Buscar y Ubicar", use_container_width=True):
             if search_text:
                 try:
+                    # Codificamos la URL para evitar errores con espacios o comas
                     safe_query = urllib.parse.quote(search_text)
                     url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
+                    
                     response = requests.get(url, headers={'User-Agent': 'AppPeruClima/1.0'}, timeout=10)
                     if response.status_code == 200:
                         res = response.json()
@@ -184,8 +187,12 @@ with col_map:
                             st.success(f"Ubicación confirmada: {res[0]['display_name']}")
                         else:
                             st.error("No se encontró la ubicación. Intente agregar más detalles (Ej. Mollendo, Arequipa, Perú).")
-                    else: st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
-                except Exception as e: st.error("Error al conectar con el servidor de mapas.")
+                    else:
+                        st.error("Servidor de mapas saturado. Intente de nuevo en unos segundos.")
+                except requests.exceptions.Timeout:
+                    st.error("El servidor de mapas tardó demasiado en responder.")
+                except Exception as e:
+                    st.error(f"Error al conectar con el servidor de mapas.")
     
     # MAPA SATELITAL GOOGLE HYBRID (Alta Resolución)
     map_html = f"""
@@ -249,6 +256,7 @@ if btn_generar:
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
+                    # Filtro de Privacidad Inicial
                     html_crudo = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
