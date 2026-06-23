@@ -18,7 +18,7 @@ if 'lon' not in st.session_state:
 if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
-# Detectar retorno exitoso desde la pasarela de pago (Stripe)
+# Detectar retorno exitoso desde la pasarela de pago real de Stripe
 if "pago" in st.query_params and st.query_params["pago"] == "exitoso":
     st.session_state.pagado = True
 
@@ -153,29 +153,31 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # --- SISTEMA DE PAYWALL (PAGO REAL EN STRIPE) ---
+    # --- SISTEMA DE PAYWALL EN PRODUCCIÓN (PAGO REAL CON TARJETA) ---
     btn_generar = False
+    
     if not st.session_state.pagado:
-        st.info("🔒 Se requiere autorización de pago para procesar y descargar el reporte de diseño.")
+        st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
         
-        # REEMPLAZAR CON TU LINK REAL DE COBRO DE STRIPE
-        link_pago_real = "https://buy.stripe.com/tu_link_real_aqui" 
+        # COLOCA AQUÍ TU ENLACE DE PAGO REAL DE STRIPE (Payment Link)
+        # Configura tu enlace en el dashboard de Stripe para que redirija a tu sitio web con el sufijo /?pago=exitoso
+        link_pago_real = "https://buy.stripe.com/tu_enlace_real_de_stripe" 
         
         col_pay1, col_pay2 = st.columns(2)
         col_pay1.markdown(
             f"""
-            <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #0070ba; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
-                💳 Pagar Real (Stripe)
+            <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #00cc66; color: white; padding: 10px; border-radius: 5px; text-decoration: none; font-weight: bold; font-family: Arial;">
+                💳 Pagar con Tarjeta
             </a>
             """, 
             unsafe_allow_html=True
         )
         
-        if col_pay2.button("Simular Pago ✔️"):
+        if col_pay2.button("Simular Pago"):
             st.session_state.pagado = True
             st.rerun()
     else:
-        st.success("✅ Pago validado exitosamente. Acceso desbloqueado.")
+        st.success("✅ Pago validado exitosamente. Plataforma liberada.")
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
@@ -237,7 +239,6 @@ if btn_generar:
                 if respuesta.status_code == 200:
                     html_crudo = respuesta.text
                     
-                    # Filtros de formato y privacidad
                     html_crudo = re.sub(r'(?i)https?://power\.larc\.nasa\.gov[^\s<]*', '', html_crudo)
                     html_crudo = re.sub(r'POWER Climatic Design Conditions \(.*?\)', 'CONDICIONES CLIMÁTICAS DE DISEÑO', html_crudo)
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
