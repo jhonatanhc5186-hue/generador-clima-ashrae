@@ -159,33 +159,33 @@ with col_params:
     if not st.session_state.pagado:
         st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
         
-        # Bloque visual de confianza con estilo elegante
+        # Bloque visual de confianza
         st.markdown("""
         <div style="text-align: center; margin-bottom: 10px;">
             <small style="color: #666;">Pagos seguros con:</small><br>
-            <span style="font-size: 16px; font-weight: bold; color: #333;">¼ Tarjetas · Yape · Plin</span>
+            <span style="font-size: 16px; font-weight: bold; color: #333;">💳 Tarjetas · Yape · Plin</span>
         </div>
         """, unsafe_allow_html=True)
         
-        # Enlace real verificado de Mercado Pago obtenido de tu panel
+        # Enlace de Mercado Pago Real integrado
         link_pago_real = "https://mpago.la/1bhrXb7" 
         
         st.markdown(
             f"""
             <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #009ee3; color: white; padding: 14px; border-radius: 8px; text-decoration: none; font-weight: bold; font-family: sans-serif; box-shadow: 2px 2px 5px #ccc; font-size: 18px;">
-                ¼ Pagar con Mercado Pago (US$ 10.00)
+                💳 Pagar con Mercado Pago (US$ 10.00)
             </a>
             """, 
             unsafe_allow_html=True
         )
         
         st.markdown("<br>", unsafe_allow_html=True)
-        # Botón manual de respaldo de seguridad por si falla la red en el retorno automático
+        # Botón de respaldo
         if st.button("Ya realicé el pago, desbloquear reporte"):
             st.session_state.pagado = True
             st.rerun()
     else:
-        st.success("âœ… Pago validado exitosamente. Plataforma liberada.")
+        st.success("✅ Pago validado exitosamente. Plataforma liberada.")
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
@@ -252,7 +252,7 @@ if btn_generar:
                     html_crudo = html_crudo.replace("POWER Climatic Design Conditions", "CONDICIONES CLIMÁTICAS DE DISEÑO")
                     
                     loc_name = get_location_name(lat, lon)
-                    pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>ðŸ“</span> {loc_name} (WMO: SATELITAL)</div>"
+                    pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {loc_name} (WMO: SATELITAL)</div>"
                     html_crudo = html_crudo.replace("<table", f"{pin_html}\n<table", 1)
                     
                     html_preview_final = html_crudo.replace("</head>", "{css}</head>".format(css=css_preview))
@@ -368,7 +368,7 @@ if btn_generar:
             m_rows += build_row([("RadStd", 1, 2, False)], lambda x: x['GloHorz'].std() * 24 / 1000 if not x.empty else 0)
 
             city_only = selected_city.split('-')[-1].strip().upper()
-            pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>ðŸ“</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
+            pin_html = f"<div class='location-pin'><span style='color: #1f456e;'>📍</span> {city_only}, PERÚ (WMO: {wmo_display})</div>"
 
             html_base = f"""
             <html><head></head>
@@ -410,7 +410,7 @@ if btn_generar:
                         <td>{df['DP'].quantile(0.004):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.004)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.004)):.1f}</td>
                         <td>{df['DP'].quantile(0.010):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.010)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.010)):.1f}</td>
                         <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
-                        <td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.990):.1f}</td>
+                        <td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.990)):.1f}</td>
                         <td>{mc(df, 'DB', 'WS', df['DB'].quantile(0.004)):.1f}</td><td>N/A</td>
                     </tr>
                 </table>
