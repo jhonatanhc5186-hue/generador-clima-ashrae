@@ -18,9 +18,11 @@ if 'lon' not in st.session_state:
 if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
-# DETECCIÓN ULTRA SEGURA: Detectar retorno exitoso real desde la pasarela de Mercado Pago
-# Mercado Pago añade automáticamente el parámetro 'status=approved' en la URL tras un pago real
-if "status" in st.query_params and st.query_params["status"] == "approved":
+# DETECCIÓN DE PAGO AUTOMÁTICA Y FLEXIBLE
+# Evalúa tanto la URL exacta que guardaste en tu panel (?pago=exitoso) como los parámetros de Mercado Pago
+if ("pago" in st.query_params and st.query_params["pago"] == "exitoso") or \
+   ("status" in st.query_params and st.query_params["status"] == "approved") or \
+   ("collection_status" in st.query_params and st.query_params["collection_status"] == "approved"):
     st.session_state.pagado = True
 
 # --- 2. CALLBACK DE BÚSQUEDA GEOGRÁFICA (Doble Motor Blindado) ---
@@ -157,6 +159,9 @@ with col_params:
     # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO TOTALMENTE BLINDADO) ---
     btn_generar = False
     
+    MONTO_DISPLAY = "10.00"   
+    MONEDA_DISPLAY = "US$"    
+    
     if not st.session_state.pagado:
         st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
         
@@ -174,7 +179,7 @@ with col_params:
         st.markdown(
             f"""
             <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #009ee3; color: white; padding: 14px; border-radius: 8px; text-decoration: none; font-weight: bold; font-family: sans-serif; box-shadow: 2px 2px 5px #ccc; font-size: 18px;">
-                💳 Pagar con Mercado Pago (US$ 10.00)
+                💳 Pagar con Mercado Pago ({MONEDA_DISPLAY} {MONTO_DISPLAY})
             </a>
             """, 
             unsafe_allow_html=True
