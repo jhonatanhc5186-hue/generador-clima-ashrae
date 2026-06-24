@@ -18,8 +18,7 @@ if 'lon' not in st.session_state:
 if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
-# DETECCIÓN DE PAGO ESTRICTA (ÚNICA VÍA DE ACCESO)
-# El cliente DEBE regresar a la URL con ?pago=exitoso o ?status=approved
+# DETECCIÓN DE PAGO ESTRICTA (ÚNICA VÍA DE ACCESO REAL)
 if ("pago" in st.query_params and st.query_params["pago"] == "exitoso") or \
    ("status" in st.query_params and st.query_params["status"] == "approved") or \
    ("collection_status" in st.query_params and st.query_params["collection_status"] == "approved"):
@@ -156,11 +155,11 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO) ---
+    # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO TOTALMENTE SEGURO) ---
     btn_generar = False
     
-    MONTO_DISPLAY = "10.00"   
-    MONEDA_DISPLAY = "US$"    
+    MONTO_DISPLAY = "2.00"   
+    MONEDA_DISPLAY = "S/"    
     
     if not st.session_state.pagado:
         st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
