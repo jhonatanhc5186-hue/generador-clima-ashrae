@@ -159,8 +159,9 @@ with col_params:
     # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO TOTALMENTE BLINDADO) ---
     btn_generar = False
     
-    MONTO_DISPLAY = "10.00"   
-    MONEDA_DISPLAY = "US$"    
+    # Valores actualizados a Soles peruanos
+    MONTO_DISPLAY = "2.00"   
+    MONEDA_DISPLAY = "S/"    
     
     if not st.session_state.pagado:
         st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
