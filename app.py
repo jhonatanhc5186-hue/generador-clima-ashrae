@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit st
 import pandas as pd
 import numpy as np
 import requests
@@ -19,7 +19,7 @@ if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
 # DETECCIÓN DE PAGO AUTOMÁTICA Y FLEXIBLE
-# Evalúa tanto la URL exacta que guardaste en tu panel (?pago=exitoso) como los parámetros de Mercado Pago
+# Evalúa tanto la URL exacta que guardaste en tu panel (?pago=exitoso) como los parámetros nativos de Mercado Pago
 if ("pago" in st.query_params and st.query_params["pago"] == "exitoso") or \
    ("status" in st.query_params and st.query_params["status"] == "approved") or \
    ("collection_status" in st.query_params and st.query_params["collection_status"] == "approved"):
@@ -159,7 +159,7 @@ with col_params:
     # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO TOTALMENTE BLINDADO) ---
     btn_generar = False
     
-    # Valores actualizados a Soles peruanos
+    # Valores actualizados a Soles peruanos según tu panel
     MONTO_DISPLAY = "2.00"   
     MONEDA_DISPLAY = "S/"    
     
