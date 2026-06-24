@@ -18,8 +18,7 @@ if 'lon' not in st.session_state:
 if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
-# DETECCIÓN DE PAGO AUTOMÁTICA Y FLEXIBLE
-# Evalúa tanto la URL exacta que guardaste en tu panel (?pago=exitoso) como los parámetros nativos de Mercado Pago
+# DETECCIÓN DE PAGO AUTOMÁTICA
 if ("pago" in st.query_params and st.query_params["pago"] == "exitoso") or \
    ("status" in st.query_params and st.query_params["status"] == "approved") or \
    ("collection_status" in st.query_params and st.query_params["collection_status"] == "approved"):
@@ -156,17 +155,15 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO TOTALMENTE BLINDADO) ---
+    # --- SISTEMA DE PAGO INTEGRADO CON RESPALDO ---
     btn_generar = False
     
-    # Valores actualizados a Soles peruanos según tu panel
     MONTO_DISPLAY = "2.00"   
     MONEDA_DISPLAY = "S/"    
     
     if not st.session_state.pagado:
         st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
         
-        # Bloque visual de confianza
         st.markdown("""
         <div style="text-align: center; margin-bottom: 10px;">
             <small style="color: #666;">Pagos seguros con:</small><br>
@@ -174,7 +171,6 @@ with col_params:
         </div>
         """, unsafe_allow_html=True)
         
-        # Enlace oficial verificado de Mercado Pago
         link_pago_real = "https://mpago.la/1bhrXb7" 
         
         st.markdown(
@@ -185,8 +181,23 @@ with col_params:
             """, 
             unsafe_allow_html=True
         )
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # SISTEMA DE RESPALDO: Validación por Número de Operación
+        with st.expander("¿Ya pagaste y la página no se desbloqueó?"):
+            st.write("A veces los navegadores bloquean la redirección automática. Ingresa el **Número de Operación** de tu recibo de Mercado Pago para validar tu acceso.")
+            op_num = st.text_input("Número de Operación (Ej: 164736205755)", key="op_input")
+            if st.button("Validar Operación", type="secondary"):
+                # Validamos que el número tenga al menos 9 dígitos y sean solo números (evita curiosos)
+                if len(op_num.strip()) > 8 and op_num.strip().isdigit():
+                    st.session_state.pagado = True
+                    st.rerun()
+                else:
+                    st.error("❌ Número de operación inválido. Ingresa los números exactos de tu comprobante.")
+
     else:
-        st.success("✅ Pago validado exitosamente por Mercado Pago. Plataforma liberada.")
+        st.success("✅ Pago validado exitosamente. Plataforma liberada.")
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
