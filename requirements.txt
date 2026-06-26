@@ -4,3 +4,7 @@ numpy
 requests
 weasyprint
 beautifulsoup4
+fastapi
+uvicorn
+requests
+supabase
