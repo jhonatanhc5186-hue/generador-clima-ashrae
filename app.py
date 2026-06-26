@@ -7,10 +7,27 @@ import re
 import urllib.parse
 import streamlit.components.v1 as components
 from weasyprint import HTML
+from supabase import create_client
 
 st.set_page_config(page_title="Condiciones Climáticas de Diseño", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 1. ESTADOS DE SESIÓN (MAPA, COORDENADAS Y PAGOS) ---
+# --- 1. CONFIGURACIÓN DE CONEXIÓN A SUPABASE ---
+# Coloca aquí tus credenciales reales obtenidas de la consola de Supabase
+SUPABASE_URL = "https://hyzuooqfxthpsftftkza.supabase.co"
+SUPABASE_KEY = "sb_publishable_THRgFkbPdniWOjDpZTjU-A_lbeF8A7D" # Reemplaza con tu llave 'sb_publishable...'
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Función para consultar la base de datos de manera segura
+def verificar_pago_en_db(email):
+    try:
+        # Busca si hay algún registro aprobado vinculado al correo ingresado
+        result = supabase.table("pagos").select("*").eq("email", email.strip()).eq("status", "approved").execute()
+        return len(result.data) > 0
+    except Exception as e:
+        st.error(f"Error al conectar con la base de datos de validación: {e}")
+        return False
+
+# --- ESTADOS DE SESIÓN ---
 if 'lat' not in st.session_state:
     st.session_state.lat = -16.3410
 if 'lon' not in st.session_state:
@@ -18,13 +35,7 @@ if 'lon' not in st.session_state:
 if 'pagado' not in st.session_state:
     st.session_state.pagado = False
 
-# DETECCIÓN DE PAGO ESTRICTA (ÚNICA VÍA DE ACCESO REAL)
-if ("pago" in st.query_params and st.query_params["pago"] == "exitoso") or \
-   ("status" in st.query_params and st.query_params["status"] == "approved") or \
-   ("collection_status" in st.query_params and st.query_params["collection_status"] == "approved"):
-    st.session_state.pagado = True
-
-# --- 2. CALLBACK DE BÚSQUEDA GEOGRÁFICA (Doble Motor Blindado) ---
+# --- 2. CALLBACK DE BÚSQUEDA GEOGRÁFICA ---
 def execute_search():
     st.session_state.pop('search_success', None)
     st.session_state.pop('search_error', None)
@@ -35,7 +46,7 @@ def execute_search():
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         encontrado = False
         
-        # Motor 1: Nominatim (OpenStreetMap)
+        # Motor 1: Nominatim
         try:
             url = f"https://nominatim.openstreetmap.org/search?q={safe_query}&format=json&limit=1"
             res = requests.get(url, headers=headers, timeout=5).json()
@@ -46,7 +57,7 @@ def execute_search():
                 encontrado = True
         except: pass
         
-        # Motor 2: Open-Meteo (Respaldo)
+        # Motor 2: Open-Meteo
         if not encontrado:
             try:
                 url2 = f"https://geocoding-api.open-meteo.com/v1/search?name={safe_query}&count=1&language=es&format=json"
@@ -155,34 +166,39 @@ with col_params:
 
     st.markdown("<br>", unsafe_allow_html=True) 
     
-    # --- SISTEMA DE PAGO INTEGRADO (MERCADO PAGO TOTALMENTE SEGURO) ---
+    # --- SISTEMA DE CONTROL DE ACCESO MEDIANTE BASE DE DATOS ---
     btn_generar = False
-    
     MONTO_DISPLAY = "2.00"   
     MONEDA_DISPLAY = "S/"    
     
     if not st.session_state.pagado:
-        st.info("🔒 Se requiere la confirmación de pago para procesar la data y descargar el documento PDF.")
+        st.info("🔒 Ingrese el correo electrónico con el que realizó el pago en Mercado Pago para activar las descargas.")
         
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 10px;">
-            <small style="color: #666;">Pagos seguros con:</small><br>
-            <span style="font-size: 16px; font-weight: bold; color: #333;">💳 Tarjetas · Yape · Plin</span>
-        </div>
-        """, unsafe_allow_html=True)
+        email_usuario = st.text_input("Correo registrado de pago:", placeholder="correo@ejemplo.com")
         
-        link_pago_real = "https://mpago.la/1bhrXb7" 
+        col_btn_verificar, col_btn_link = st.columns([1, 1])
         
-        st.markdown(
-            f"""
-            <a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #009ee3; color: white; padding: 14px; border-radius: 8px; text-decoration: none; font-weight: bold; font-family: sans-serif; box-shadow: 2px 2px 5px #ccc; font-size: 18px;">
-                💳 Pagar con Mercado Pago ({MONEDA_DISPLAY} {MONTO_DISPLAY})
-            </a>
-            """, 
-            unsafe_allow_html=True
-        )
+        with col_btn_verificar:
+            if st.button("Validar Acceso", use_container_width=True, type="secondary"):
+                if email_usuario:
+                    with st.spinner("Consultando estado de cuenta..."):
+                        if verificar_pago_en_db(email_usuario):
+                            st.session_state.pagado = True
+                            st.success("¡Pago validado! Acceso concedido.")
+                            st.rerun()
+                        else:
+                            st.error("No se encontró un pago aprobado asociado a este correo.")
+                else:
+                    st.warning("Por favor ingrese un correo válido.")
+                    
+        with col_btn_link:
+            link_pago_real = "https://mpago.la/1bhrXb7" 
+            st.markdown(
+                f"""<a href="{link_pago_real}" target="_blank" style="display: block; text-align: center; background-color: #009ee3; color: white; padding: 10px; border-radius: 4px; text-decoration: none; font-weight: bold; font-family: sans-serif; font-size: 13px;">💳 Ir a Pagar ({MONEDA_DISPLAY} {MONTO_DISPLAY})</a>""", 
+                unsafe_allow_html=True
+            )
     else:
-        st.success("✅ Pago validado exitosamente. Plataforma liberada.")
+        st.success("✅ Plataforma desbloqueada correctamente.")
         btn_generar = st.button("Generar Reporte Maestro", type="primary", use_container_width=True)
 
 with col_map:
@@ -194,7 +210,7 @@ with col_map:
         if 'search_success' in st.session_state: st.success(st.session_state.search_success)
         if 'search_error' in st.session_state: st.error(st.session_state.search_error)
     
-    # MAPA SATELITAL GOOGLE HYBRID
+    # MAPA SATELITAL
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -213,7 +229,7 @@ with col_map:
 
 st.markdown("---")
 
-# --- 6. CSS CLÓNICO NASA PARA REPORTES ---
+# --- 6. CSS REPORTE ---
 css_base = """
 <style>
     @page { size: A4 portrait; margin: 6mm; }
@@ -406,7 +422,7 @@ if btn_generar:
                         <td>{df['DB'].quantile(0.004):.1f}</td><td>{df['DB'].quantile(0.010):.1f}</td>
                         <td>{df['DP'].quantile(0.004):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.004)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.004)):.1f}</td>
                         <td>{df['DP'].quantile(0.010):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.010)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.010)):.1f}</td>
-                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
+                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996):.1f}</td>
                         <td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.990)):.1f}</td>
                         <td>{mc(df, 'DB', 'WS', df['DB'].quantile(0.004)):.1f}</td><td>N/A</td>
                     </tr>
