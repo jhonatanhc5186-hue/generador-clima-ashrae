@@ -12,15 +12,12 @@ from supabase import create_client
 st.set_page_config(page_title="Condiciones Climáticas de Diseño", layout="wide", initial_sidebar_state="collapsed")
 
 # --- 1. CONFIGURACIÓN DE CONEXIÓN A SUPABASE ---
-# Coloca aquí tus credenciales reales obtenidas de la consola de Supabase
 SUPABASE_URL = "https://hyzuooqfxthpsftftkza.supabase.co"
-SUPABASE_KEY = "sb_publishable_THRgFkbPdniWOjDpZTjU-A_lbeF8A7D" # Reemplaza con tu llave 'sb_publishable...'
+SUPABASE_KEY = "sb_publishable_THRgFkbPdniWOjDpZTjU-A_lbeF8A7D"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Función para consultar la base de datos de manera segura
 def verificar_pago_en_db(email):
     try:
-        # Busca si hay algún registro aprobado vinculado al correo ingresado
         result = supabase.table("pagos").select("*").eq("email", email.strip()).eq("status", "approved").execute()
         return len(result.data) > 0
     except Exception as e:
@@ -422,7 +419,7 @@ if btn_generar:
                         <td>{df['DB'].quantile(0.004):.1f}</td><td>{df['DB'].quantile(0.010):.1f}</td>
                         <td>{df['DP'].quantile(0.004):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.004)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.004)):.1f}</td>
                         <td>{df['DP'].quantile(0.010):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.010)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.010)):.1f}</td>
-                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996):.1f}</td>
+                        <td>{df['WS'].quantile(0.996):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.996)):.1f}</td>
                         <td>{df['WS'].quantile(0.990):.1f}</td><td>{mc(df, 'WS', 'DB', df['WS'].quantile(0.990)):.1f}</td>
                         <td>{mc(df, 'DB', 'WS', df['DB'].quantile(0.004)):.1f}</td><td>N/A</td>
                     </tr>
@@ -451,7 +448,7 @@ if btn_generar:
                         <td>{df['DB'].quantile(0.980):.1f}</td><td>{mc(df, 'DB', 'WB', df['DB'].quantile(0.980)):.1f}</td>
                         <td>{df['WB'].quantile(0.996):.1f}</td><td>{mc(df, 'WB', 'DB', df['WB'].quantile(0.996)):.1f}</td>
                         <td>{df['WB'].quantile(0.980):.1f}</td><td>{mc(df, 'WB', 'DB', df['WB'].quantile(0.980)):.1f}</td>
-                        <td>{df['DP'].quantile(0.996):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.996)):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.996)):.1f}</td>
+                        <td>{df['DP'].quantile(0.996):.1f}</td><td>{mc(df, 'DP', 'HR', df['DP'].quantile(0.996):.1f}</td><td>{mc(df, 'DP', 'DB', df['DP'].quantile(0.996)):.1f}</td>
                         <td>{df['Enth'].quantile(0.996):.1f}</td><td>{df['Enth'].quantile(0.990):.1f}</td><td>{mc(df, 'Enth', 'DB', df['Enth'].quantile(0.996)):.1f}</td>
                         <td>{df['WB'].max():.1f}</td>
                     </tr>
